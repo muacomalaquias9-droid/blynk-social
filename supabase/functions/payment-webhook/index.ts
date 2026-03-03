@@ -26,7 +26,7 @@ async function verifyHmacSignature(payload: any, signature: string, secretKey: s
       ['sign']
     );
     const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(canonical));
-    const expectedSignature = base64Encode(new Uint8Array(sig));
+    const expectedSignature = base64Encode(sig);
 
     return expectedSignature === signature;
   } catch (e) {

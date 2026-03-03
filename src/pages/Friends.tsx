@@ -6,8 +6,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Search, Users, X, TrendingUp, Hash, Play, Grid3X3, Film, MoreHorizontal } from 'lucide-react';
+import { Search, Users, X, TrendingUp, Hash, Play, Grid3X3, Film, MoreHorizontal, UserPlus, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { useOnlineUsers } from '@/hooks/useOnlineUsers';
 import { OnlineIndicator } from '@/components/OnlineIndicator';
@@ -15,6 +14,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import VerificationBadge from '@/components/VerificationBadge';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
+import { cn } from '@/lib/utils';
 
 interface Profile {
   id: string;
@@ -32,12 +32,6 @@ interface FriendRequest {
   receiver_id: string;
   status: string;
   sender: Profile;
-}
-
-interface MutualFriend {
-  id: string;
-  avatar_url: string | null;
-  first_name: string;
 }
 
 interface TrendingHashtag {
@@ -84,15 +78,13 @@ export default function Friends() {
   const [friends, setFriends] = useState<string[]>([]);
   const [friendProfiles, setFriendProfiles] = useState<Profile[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [mutualFriendsMap, setMutualFriendsMap] = useState<{ [userId: string]: MutualFriend[] }>({});
   const [activeTab, setActiveTab] = useState('discover');
   const [trendingHashtags, setTrendingHashtags] = useState<TrendingHashtag[]>([]);
   const [trendingVideos, setTrendingVideos] = useState<Video[]>([]);
   const [searchResults, setSearchResults] = useState<{ users: Profile[]; videos: Video[]; posts: Post[] }>({ users: [], videos: [], posts: [] });
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
   const [fullscreenSheet, setFullscreenSheet] = useState(false);
-  const videoRefs = useRef<{ [key: string]: HTMLVideoElement }>({});
-  
+
   const onlineFriendsCount = friendProfiles.filter(u => onlineUsers.has(u.id)).length;
 
   useEffect(() => {
@@ -106,77 +98,33 @@ export default function Friends() {
 
     const channel = supabase
       .channel('friendships-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'friendships' }, () => {
-        loadFriends();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'friend_requests' }, () => {
-        loadFriendRequests();
-      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'friendships' }, () => loadFriends())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'friend_requests' }, () => loadFriendRequests())
       .subscribe();
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => { supabase.removeChannel(channel); };
   }, [user]);
 
   useEffect(() => {
-    if (allUsers.length > 0 && friends.length > 0) {
-      loadMutualFriends();
-    }
-  }, [allUsers, friends]);
-
-  useEffect(() => {
-    if (searchQuery.trim()) {
-      handleSearch();
-    } else {
-      setSearchResults({ users: [], videos: [], posts: [] });
-    }
+    if (searchQuery.trim()) handleSearch();
+    else setSearchResults({ users: [], videos: [], posts: [] });
   }, [searchQuery]);
-
-  // Intersection Observer for video autoplay
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          const video = entry.target as HTMLVideoElement;
-          if (entry.isIntersecting) {
-            video.play().catch(() => {});
-          } else {
-            video.pause();
-          }
-        });
-      },
-      { threshold: 0.5 }
-    );
-
-    Object.values(videoRefs.current).forEach((video) => {
-      if (video) observer.observe(video);
-    });
-
-    return () => observer.disconnect();
-  }, [trendingVideos]);
 
   const loadUsers = async () => {
     const { data } = await supabase
       .from('profiles')
       .select('id, username, first_name, full_name, avatar_url, verified, badge_type')
       .neq('id', user?.id);
-    
     if (data) setAllUsers(data);
   };
 
   const loadFriendRequests = async () => {
     if (!user) return;
-
     const { data: received } = await supabase
       .from('friend_requests')
-      .select(`
-        *,
-        sender:profiles!friend_requests_sender_id_fkey(id, username, first_name, full_name, avatar_url, verified, badge_type)
-      `)
+      .select(`*, sender:profiles!friend_requests_sender_id_fkey(id, username, first_name, full_name, avatar_url, verified, badge_type)`)
       .eq('receiver_id', user.id)
       .eq('status', 'pending');
-
     if (received) setFriendRequests(received as any);
 
     const { data: sent } = await supabase
@@ -184,189 +132,81 @@ export default function Friends() {
       .select('receiver_id')
       .eq('sender_id', user.id)
       .eq('status', 'pending');
-
     if (sent) setSentRequests(sent.map(r => r.receiver_id));
   };
 
   const loadFriends = async () => {
     if (!user) return;
-
     const { data } = await supabase
       .from('friendships')
       .select('user_id_1, user_id_2')
       .or(`user_id_1.eq.${user.id},user_id_2.eq.${user.id}`);
-
     if (data) {
-      const friendIds = data.map(f => 
-        f.user_id_1 === user.id ? f.user_id_2 : f.user_id_1
-      );
+      const friendIds = data.map(f => f.user_id_1 === user.id ? f.user_id_2 : f.user_id_1);
       setFriends(friendIds);
-
       if (friendIds.length > 0) {
         const { data: profiles } = await supabase
           .from('profiles')
           .select('id, username, first_name, full_name, avatar_url, verified, badge_type')
           .in('id', friendIds);
-        
         if (profiles) setFriendProfiles(profiles);
       }
     }
   };
 
-  const loadMutualFriends = async () => {
-    if (!user || friends.length === 0) return;
-    const mutualMap: { [userId: string]: MutualFriend[] } = {};
-
-    for (const profile of allUsers.slice(0, 20)) {
-      if (friends.includes(profile.id)) continue;
-
-      const { data: theirFriendships } = await supabase
-        .from('friendships')
-        .select('user_id_1, user_id_2')
-        .or(`user_id_1.eq.${profile.id},user_id_2.eq.${profile.id}`);
-
-      if (theirFriendships) {
-        const theirFriends = theirFriendships.map(f => 
-          f.user_id_1 === profile.id ? f.user_id_2 : f.user_id_1
-        );
-
-        const mutual = friends.filter(f => theirFriends.includes(f));
-        
-        if (mutual.length > 0) {
-          const mutualProfiles = friendProfiles
-            .filter(fp => mutual.includes(fp.id))
-            .slice(0, 3)
-            .map(fp => ({
-              id: fp.id,
-              avatar_url: fp.avatar_url,
-              first_name: fp.first_name
-            }));
-          
-          mutualMap[profile.id] = mutualProfiles;
-        }
-      }
-    }
-
-    setMutualFriendsMap(mutualMap);
-  };
-
   const loadTrendingHashtags = async () => {
-    const { data } = await supabase
-      .from('hashtags')
-      .select('id, name, post_count')
-      .order('post_count', { ascending: false })
-      .limit(10);
-    
+    const { data } = await supabase.from('hashtags').select('id, name, post_count').order('post_count', { ascending: false }).limit(10);
     if (data) setTrendingHashtags(data);
   };
 
   const loadTrendingVideos = async () => {
     const { data } = await supabase
       .from('verification_videos')
-      .select(`
-        id, video_url, caption, user_id, created_at,
-        profile:profiles!verification_videos_user_id_fkey(username, first_name, avatar_url, verified)
-      `)
+      .select(`id, video_url, caption, user_id, created_at, profile:profiles!verification_videos_user_id_fkey(username, first_name, avatar_url, verified)`)
       .order('created_at', { ascending: false })
       .limit(12);
-    
     if (data) setTrendingVideos(data as any);
   };
 
   const handleSearch = async () => {
     const query = searchQuery.toLowerCase();
-    
-    // Search users
-    const { data: users } = await supabase
-      .from('profiles')
+    const { data: users } = await supabase.from('profiles')
       .select('id, username, first_name, full_name, avatar_url, verified, badge_type')
       .or(`username.ilike.%${query}%,first_name.ilike.%${query}%,full_name.ilike.%${query}%`)
       .limit(10);
-
-    // Search videos
-    const { data: videos } = await supabase
-      .from('verification_videos')
-      .select(`
-        id, video_url, caption, user_id, created_at,
-        profile:profiles!verification_videos_user_id_fkey(username, first_name, avatar_url, verified)
-      `)
-      .ilike('caption', `%${query}%`)
-      .limit(10);
-
-    // Search posts
-    const { data: posts } = await supabase
-      .from('posts')
-      .select(`
-        id, content, media_urls, user_id, created_at,
-        profiles(username, first_name, avatar_url, verified)
-      `)
-      .ilike('content', `%${query}%`)
-      .limit(10);
-
-    setSearchResults({
-      users: users || [],
-      videos: videos as any || [],
-      posts: posts as any || []
-    });
+    const { data: videos } = await supabase.from('verification_videos')
+      .select(`id, video_url, caption, user_id, created_at, profile:profiles!verification_videos_user_id_fkey(username, first_name, avatar_url, verified)`)
+      .ilike('caption', `%${query}%`).limit(10);
+    const { data: posts } = await supabase.from('posts')
+      .select(`id, content, media_urls, user_id, created_at, profiles(username, first_name, avatar_url, verified)`)
+      .ilike('content', `%${query}%`).limit(10);
+    setSearchResults({ users: users || [], videos: videos as any || [], posts: posts as any || [] });
   };
 
   const sendFriendRequest = async (receiverId: string) => {
     if (!user) return;
-
-    const { error } = await supabase
-      .from('friend_requests')
-      .insert({
-        sender_id: user.id,
-        receiver_id: receiverId,
-      });
-
-    if (error) {
-      toast.error('Erro ao enviar pedido');
-    } else {
-      toast.success('Pedido de amizade enviado!');
-      setSentRequests([...sentRequests, receiverId]);
-    }
+    const { error } = await supabase.from('friend_requests').insert({ sender_id: user.id, receiver_id: receiverId });
+    if (error) toast.error('Erro ao enviar pedido');
+    else { toast.success('Pedido de amizade enviado!'); setSentRequests([...sentRequests, receiverId]); }
   };
 
   const acceptFriendRequest = async (requestId: string, senderId: string) => {
     if (!user) return;
-
-    await supabase
-      .from('friend_requests')
-      .update({ status: 'accepted' })
-      .eq('id', requestId);
-
+    await supabase.from('friend_requests').update({ status: 'accepted' }).eq('id', requestId);
     const [userId1, userId2] = [user.id, senderId].sort();
-    await supabase
-      .from('friendships')
-      .insert({
-        user_id_1: userId1,
-        user_id_2: userId2,
-      });
-
+    await supabase.from('friendships').insert({ user_id_1: userId1, user_id_2: userId2 });
     toast.success('Pedido aceito!');
     loadFriendRequests();
     loadFriends();
   };
 
   const rejectFriendRequest = async (requestId: string) => {
-    await supabase
-      .from('friend_requests')
-      .update({ status: 'rejected' })
-      .eq('id', requestId);
-
+    await supabase.from('friend_requests').update({ status: 'rejected' }).eq('id', requestId);
     toast.success('Pedido rejeitado');
     loadFriendRequests();
   };
 
-  const navigateToProfile = (userId: string) => {
-    navigate(`/profile/${userId}`);
-  };
-
-  const openPostFullscreen = (post: Post) => {
-    setSelectedPost(post);
-    setFullscreenSheet(true);
-  };
+  const navigateToProfile = (userId: string) => navigate(`/profile/${userId}`);
 
   const filteredFriends = friendProfiles.filter(profile =>
     profile.first_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -374,435 +214,345 @@ export default function Friends() {
     profile.full_name?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const suggestedUsers = allUsers
+    .filter(u => !friends.includes(u.id) && !sentRequests.includes(u.id) && u.id !== user?.id)
+    .slice(0, 15);
+
   return (
     <MainLayout title="Explorar">
-      <div className="max-w-2xl mx-auto pb-20">
-        {/* Header with Search - Instagram Style */}
-        <div className="sticky top-0 z-10 bg-background/95 backdrop-blur-xl border-b border-border/50">
+      <div className="max-w-2xl mx-auto pb-24">
+        {/* Liquid Glass Header */}
+        <div className="sticky top-0 z-20 bg-background/70 backdrop-blur-[40px] saturate-[1.8] border-b border-border/20">
           <div className="px-4 py-3">
             <div className="relative">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground pointer-events-none" />
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground/60 pointer-events-none" />
               <Input
                 type="text"
-                placeholder="Pesquisar pessoas, vídeos, hashtags..."
+                placeholder="Pesquisar..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-12 bg-muted/50 border-0 rounded-2xl h-12 text-[15px] focus-visible:ring-2 focus-visible:ring-primary/40 placeholder:text-muted-foreground/70"
+                className="pl-12 bg-muted/40 border-0 rounded-2xl h-11 text-[15px] focus-visible:ring-1 focus-visible:ring-primary/30 placeholder:text-muted-foreground/50"
               />
               {searchQuery && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8 rounded-full hover:bg-muted"
-                  onClick={() => setSearchQuery('')}
-                >
-                  <X className="h-4 w-4" />
+                <Button variant="ghost" size="icon" className="absolute right-2 top-1/2 -translate-y-1/2 h-7 w-7 rounded-full" onClick={() => setSearchQuery('')}>
+                  <X className="h-3.5 w-3.5" />
                 </Button>
               )}
             </div>
           </div>
 
-          {/* Stats - Instagram Style Pills */}
-          <div className="flex items-center gap-2 px-4 py-3 border-t border-border/30">
-            <div className="flex items-center gap-2 px-4 py-2 bg-green-500/10 rounded-full border border-green-500/20">
-              <div className="h-2.5 w-2.5 rounded-full bg-green-500 animate-pulse" />
-              <span className="text-sm font-semibold text-green-600">{onlineFriendsCount} online</span>
+          {/* Threads-style pill stats */}
+          <div className="flex items-center gap-2 px-4 pb-3">
+            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/10 rounded-full">
+              <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
+              <span className="text-xs font-semibold text-green-600 dark:text-green-400">{onlineFriendsCount} online</span>
             </div>
-            <div className="flex items-center gap-2 px-4 py-2 bg-muted/60 rounded-full">
-              <Users className="h-4 w-4 text-primary" />
-              <span className="text-sm font-semibold">{friends.length} amigos</span>
+            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-muted/50 rounded-full">
+              <Users className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="text-xs font-semibold text-muted-foreground">{friends.length} amigos</span>
             </div>
           </div>
         </div>
 
-        {/* Search Results - Instagram Style */}
-        {searchQuery && (searchResults.users.length > 0 || searchResults.videos.length > 0 || searchResults.posts.length > 0) && (
-          <div className="p-4 space-y-6">
-            {/* Users Results */}
+        {/* Search Results */}
+        {searchQuery && (searchResults.users.length > 0 || searchResults.videos.length > 0 || searchResults.posts.length > 0) ? (
+          <div className="p-4 space-y-5 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 200px)' }}>
             {searchResults.users.length > 0 && (
               <div>
-                <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-2">
-                  <Users className="h-4 w-4" /> Pessoas
-                </h3>
+                <h3 className="text-xs font-bold text-muted-foreground/60 uppercase tracking-widest mb-3">Pessoas</h3>
                 <div className="space-y-1">
-                  {searchResults.users.map(profile => (
+                  {searchResults.users.map((profile, i) => (
                     <motion.div
                       key={profile.id}
-                      initial={{ opacity: 0, x: -10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      className="flex items-center gap-4 p-3 bg-card rounded-2xl cursor-pointer hover:bg-muted/60 transition-all duration-200 border border-transparent hover:border-border/50"
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: i * 0.03 }}
+                      className="flex items-center gap-3 p-3 rounded-2xl cursor-pointer hover:bg-muted/40 transition-all active:scale-[0.98]"
                       onClick={() => navigateToProfile(profile.id)}
                     >
-                      <Avatar className="h-14 w-14 ring-2 ring-border/50">
+                      <Avatar className="h-12 w-12">
                         <AvatarImage src={profile.avatar_url || undefined} className="object-cover" />
-                        <AvatarFallback className="bg-gradient-to-br from-primary/20 to-accent/20 font-bold text-lg">
+                        <AvatarFallback className="bg-gradient-to-br from-primary/20 to-accent/20 font-bold">
                           {profile.first_name?.[0]}
                         </AvatarFallback>
                       </Avatar>
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-bold text-[15px]">{profile.first_name}</span>
+                        <div className="flex items-center gap-1">
+                          <span className="font-bold text-sm">{profile.first_name}</span>
                           {profile.verified && <VerificationBadge verified badgeType={profile.badge_type} size="sm" />}
                         </div>
-                        <span className="text-sm text-muted-foreground">@{profile.username}</span>
+                        <span className="text-xs text-muted-foreground">@{profile.username}</span>
                       </div>
-                      <Button variant="outline" size="sm" className="rounded-xl">
-                        Ver
-                      </Button>
                     </motion.div>
                   ))}
                 </div>
               </div>
             )}
 
-            {/* Videos Results */}
             {searchResults.videos.length > 0 && (
               <div>
-                <h3 className="text-sm font-semibold text-muted-foreground mb-3 flex items-center gap-2">
-                  <Film className="h-4 w-4" /> Vídeos
-                </h3>
-                <div className="grid grid-cols-3 gap-1">
+                <h3 className="text-xs font-bold text-muted-foreground/60 uppercase tracking-widest mb-3">Vídeos</h3>
+                <div className="grid grid-cols-3 gap-0.5 rounded-2xl overflow-hidden">
                   {searchResults.videos.map(video => (
-                    <div
-                      key={video.id}
-                      className="relative aspect-[9/16] bg-black rounded-lg overflow-hidden cursor-pointer"
-                      onClick={() => navigate(`/videos?id=${video.id}`)}
-                    >
-                      <video
-                        src={video.video_url}
-                        className="w-full h-full object-cover"
-                        muted
-                        preload="metadata"
-                      />
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <Play className="h-8 w-8 text-white/80 fill-white/80" />
-                      </div>
+                    <div key={video.id} className="relative aspect-[9/16] bg-black cursor-pointer" onClick={() => navigate(`/videos?id=${video.id}`)}>
+                      <video src={video.video_url} className="w-full h-full object-cover" muted preload="metadata" />
+                      <div className="absolute inset-0 flex items-center justify-center"><Play className="h-6 w-6 text-white/70 fill-white/70" /></div>
                     </div>
                   ))}
                 </div>
               </div>
             )}
 
-            {/* Posts Results */}
             {searchResults.posts.length > 0 && (
               <div>
-                <h3 className="text-sm font-semibold text-muted-foreground mb-3 flex items-center gap-2">
-                  <Grid3X3 className="h-4 w-4" /> Publicações
-                </h3>
-                <div className="grid grid-cols-3 gap-1">
+                <h3 className="text-xs font-bold text-muted-foreground/60 uppercase tracking-widest mb-3">Publicações</h3>
+                <div className="grid grid-cols-3 gap-0.5 rounded-2xl overflow-hidden">
                   {searchResults.posts.map(post => (
-                    <div
-                      key={post.id}
-                      className="relative aspect-square bg-muted rounded-lg overflow-hidden cursor-pointer group"
-                      onClick={() => openPostFullscreen(post)}
-                    >
+                    <div key={post.id} className="relative aspect-square bg-muted cursor-pointer" onClick={() => { setSelectedPost(post); setFullscreenSheet(true); }}>
                       {post.media_urls?.[0] ? (
                         <img src={post.media_urls[0]} alt="" className="w-full h-full object-cover" />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center p-2">
-                          <p className="text-xs text-muted-foreground line-clamp-4">{post.content}</p>
+                          <p className="text-[10px] text-muted-foreground line-clamp-4">{post.content}</p>
                         </div>
                       )}
-                      <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <MoreHorizontal className="h-5 w-5 text-white drop-shadow" />
-                      </div>
                     </div>
                   ))}
                 </div>
               </div>
             )}
           </div>
-        )}
-
-        {/* Main Content */}
-        {!searchQuery && (
+        ) : !searchQuery ? (
+          /* Main Tabs Content */
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="grid w-full grid-cols-3 bg-transparent border-b rounded-none h-auto p-0">
-              <TabsTrigger 
-                value="discover"
-                className="rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent h-12 text-sm font-semibold"
-              >
-                <TrendingUp className="h-4 w-4 mr-2" />
-                Descobrir
-              </TabsTrigger>
-              <TabsTrigger 
-                value="friends"
-                className="rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent h-12 text-sm font-semibold"
-              >
-                <Users className="h-4 w-4 mr-2" />
-                Amigos
-              </TabsTrigger>
-              <TabsTrigger 
-                value="requests"
-                className="rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent h-12 text-sm font-semibold relative"
-              >
-                Pedidos
-                {friendRequests.length > 0 && (
-                  <span className="ml-1 px-1.5 py-0.5 text-xs bg-destructive text-destructive-foreground rounded-full">
-                    {friendRequests.length}
-                  </span>
-                )}
-              </TabsTrigger>
+            <TabsList className="grid w-full grid-cols-3 bg-transparent border-b border-border/20 rounded-none h-auto p-0">
+              {[
+                { value: 'discover', icon: TrendingUp, label: 'Descobrir' },
+                { value: 'friends', icon: Users, label: 'Amigos' },
+                { value: 'requests', icon: UserPlus, label: 'Pedidos' },
+              ].map((tab) => (
+                <TabsTrigger
+                  key={tab.value}
+                  value={tab.value}
+                  className="rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent h-11 text-xs font-bold gap-1.5 relative"
+                >
+                  <tab.icon className="h-4 w-4" />
+                  {tab.label}
+                  {tab.value === 'requests' && friendRequests.length > 0 && (
+                    <span className="absolute top-1 right-3 h-5 w-5 flex items-center justify-center text-[10px] bg-destructive text-destructive-foreground rounded-full">
+                      {friendRequests.length}
+                    </span>
+                  )}
+                </TabsTrigger>
+              ))}
             </TabsList>
 
-            {/* Discover Tab */}
-            <TabsContent value="discover" className="mt-0">
-              <ScrollArea className="h-[calc(100vh-280px)]">
-                {/* Trending Hashtags */}
-                <div className="p-4">
-                  <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-                    <Hash className="h-5 w-5 text-primary" />
-                    Hashtags em alta
-                  </h3>
-                  <div className="flex flex-wrap gap-2">
-                    {trendingHashtags.map(tag => (
-                      <button
-                        key={tag.id}
-                        onClick={() => navigate(`/hashtag/${tag.name}`)}
-                        className="px-4 py-2 bg-muted/50 hover:bg-muted rounded-full text-sm font-medium transition-colors"
-                      >
-                        #{tag.name}
-                        <span className="ml-2 text-muted-foreground">{tag.post_count}</span>
-                      </button>
-                    ))}
-                  </div>
+            {/* Discover */}
+            <TabsContent value="discover" className="mt-0 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 250px)' }}>
+              {/* Hashtags */}
+              <div className="p-4">
+                <h3 className="font-bold text-base mb-3 flex items-center gap-2">
+                  <Hash className="h-4 w-4 text-primary" /> Hashtags em alta
+                </h3>
+                <div className="flex flex-wrap gap-2">
+                  {trendingHashtags.map(tag => (
+                    <button key={tag.id} onClick={() => navigate(`/hashtag/${tag.name}`)}
+                      className="px-3.5 py-2 bg-muted/40 hover:bg-muted/70 rounded-full text-sm font-medium transition-colors active:scale-95">
+                      #{tag.name}
+                      <span className="ml-1.5 text-muted-foreground/60 text-xs">{tag.post_count}</span>
+                    </button>
+                  ))}
                 </div>
+              </div>
 
-                {/* Trending Videos */}
-                <div className="p-4">
-                  <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-                    <Play className="h-5 w-5 text-primary" />
-                    Vídeos em destaque
-                  </h3>
-                  <div className="grid grid-cols-3 gap-1">
-                    {trendingVideos.map(video => (
-                      <div
-                        key={video.id}
-                        className="relative aspect-[9/16] bg-black rounded-lg overflow-hidden cursor-pointer group"
-                        onClick={() => navigate(`/videos?id=${video.id}`)}
+              {/* Suggested Users - Threads style */}
+              <div className="p-4">
+                <h3 className="font-bold text-base mb-3">Sugerido para ti</h3>
+                <div className="space-y-1">
+                  {suggestedUsers.map((profile, i) => (
+                    <motion.div
+                      key={profile.id}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ delay: i * 0.03 }}
+                      className="flex items-center gap-3 p-3 rounded-2xl hover:bg-muted/30 transition-all active:scale-[0.98]"
+                    >
+                      <div className="relative cursor-pointer" onClick={() => navigateToProfile(profile.id)}>
+                        <Avatar className="h-12 w-12">
+                          <AvatarImage src={profile.avatar_url || undefined} className="object-cover" />
+                          <AvatarFallback className="bg-gradient-to-br from-primary/10 to-accent/10 font-bold">
+                            {profile.first_name?.[0]}
+                          </AvatarFallback>
+                        </Avatar>
+                        <OnlineIndicator userId={profile.id} size="sm" />
+                      </div>
+                      <div className="flex-1 min-w-0 cursor-pointer" onClick={() => navigateToProfile(profile.id)}>
+                        <div className="flex items-center gap-1">
+                          <span className="font-bold text-sm">{profile.first_name}</span>
+                          {profile.verified && <VerificationBadge verified badgeType={profile.badge_type} size="sm" />}
+                        </div>
+                        <span className="text-xs text-muted-foreground">@{profile.username}</span>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="rounded-xl h-8 text-xs font-bold px-4"
+                        onClick={() => sendFriendRequest(profile.id)}
                       >
-                        <video
-                          ref={(el) => { if (el) videoRefs.current[video.id] = el; }}
-                          src={video.video_url}
-                          className="w-full h-full object-cover"
-                          muted
-                          loop
-                          playsInline
-                          preload="metadata"
-                        />
+                        Adicionar
+                      </Button>
+                    </motion.div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Trending Videos */}
+              {trendingVideos.length > 0 && (
+                <div className="p-4">
+                  <h3 className="font-bold text-base mb-3 flex items-center gap-2">
+                    <Play className="h-4 w-4 text-primary" /> Vídeos em destaque
+                  </h3>
+                  <div className="grid grid-cols-3 gap-0.5 rounded-2xl overflow-hidden">
+                    {trendingVideos.map(video => (
+                      <div key={video.id} className="relative aspect-[9/16] bg-black cursor-pointer group" onClick={() => navigate(`/videos?id=${video.id}`)}>
+                        <video src={video.video_url} className="w-full h-full object-cover" muted loop playsInline preload="metadata" />
                         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
                         <div className="absolute bottom-2 left-2 right-2">
-                          <div className="flex items-center gap-2 mb-1">
-                            <Avatar className="h-6 w-6 border border-white">
-                              <AvatarImage src={video.profile?.avatar_url || undefined} />
-                              <AvatarFallback className="text-[10px]">{video.profile?.first_name?.[0]}</AvatarFallback>
-                            </Avatar>
-                            <span className="text-white text-xs font-medium truncate">{video.profile?.username}</span>
-                          </div>
-                          {video.caption && (
-                            <p className="text-white text-[10px] line-clamp-2">{video.caption}</p>
-                          )}
+                          <span className="text-white text-[10px] font-medium">{video.profile?.username}</span>
                         </div>
                         <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Play className="h-10 w-10 text-white fill-white" />
+                          <Play className="h-8 w-8 text-white fill-white" />
                         </div>
                       </div>
                     ))}
                   </div>
                 </div>
-              </ScrollArea>
+              )}
             </TabsContent>
 
-            {/* Friends Tab */}
-            <TabsContent value="friends" className="mt-0">
-              <ScrollArea className="h-[calc(100vh-280px)]">
-                {filteredFriends.length === 0 ? (
-                  <div className="text-center py-20 px-4">
-                    <Users className="h-16 w-16 mx-auto mb-4 text-muted-foreground/40" />
-                    <h3 className="text-xl font-bold mb-2">Nenhum amigo ainda</h3>
-                    <p className="text-muted-foreground text-sm">
-                      Adicione amigos para vê-los aqui
-                    </p>
-                  </div>
-                ) : (
-                  <div className="divide-y divide-border/30">
-                    <AnimatePresence>
-                      {filteredFriends.map((profile, index) => (
-                        <motion.div
-                          key={profile.id}
-                          initial={{ opacity: 0, y: 20 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: index * 0.03 }}
-                          className="flex items-center gap-3 p-4 hover:bg-muted/30 transition-colors cursor-pointer"
-                          onClick={() => navigateToProfile(profile.id)}
-                        >
-                          <div className="relative">
-                            <Avatar className="h-14 w-14 border-2 border-border/50">
-                              <AvatarImage src={profile.avatar_url || undefined} />
-                              <AvatarFallback className="bg-gradient-to-br from-primary/20 to-accent/20 text-lg font-bold">
-                                {profile.first_name?.[0] || profile.username?.[0]}
-                              </AvatarFallback>
-                            </Avatar>
-                            <OnlineIndicator userId={profile.id} size="md" />
-                          </div>
-                          
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-1">
-                              <p className="font-bold text-[15px] truncate hover:underline">
-                                {profile.full_name || profile.first_name}
-                              </p>
-                              {profile.verified && (
-                                <VerificationBadge verified={profile.verified} badgeType={profile.badge_type} size="sm" />
-                              )}
-                            </div>
-                            <p className="text-sm text-muted-foreground truncate">@{profile.username}</p>
-                            {onlineUsers.has(profile.id) && (
-                              <span className="text-xs text-green-500 font-medium">Online agora</span>
-                            )}
-                          </div>
-                        </motion.div>
-                      ))}
-                    </AnimatePresence>
-                  </div>
-                )}
-              </ScrollArea>
+            {/* Friends */}
+            <TabsContent value="friends" className="mt-0 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 250px)' }}>
+              {filteredFriends.length === 0 ? (
+                <div className="text-center py-20 px-4">
+                  <Users className="h-14 w-14 mx-auto mb-3 text-muted-foreground/20" />
+                  <h3 className="text-lg font-bold mb-1">Nenhum amigo ainda</h3>
+                  <p className="text-muted-foreground text-sm">Adicione amigos para vê-los aqui</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-border/10">
+                  {filteredFriends.map((profile, index) => (
+                    <motion.div
+                      key={profile.id}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ delay: index * 0.02 }}
+                      className="flex items-center gap-3 px-4 py-3 hover:bg-muted/20 transition-colors cursor-pointer active:scale-[0.99]"
+                      onClick={() => navigateToProfile(profile.id)}
+                    >
+                      <div className="relative">
+                        <Avatar className="h-12 w-12">
+                          <AvatarImage src={profile.avatar_url || undefined} className="object-cover" />
+                          <AvatarFallback className="bg-gradient-to-br from-primary/10 to-accent/10 font-bold">
+                            {profile.first_name?.[0]}
+                          </AvatarFallback>
+                        </Avatar>
+                        <OnlineIndicator userId={profile.id} size="sm" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1">
+                          <p className="font-bold text-sm">{profile.full_name || profile.first_name}</p>
+                          {profile.verified && <VerificationBadge verified={profile.verified} badgeType={profile.badge_type} size="sm" />}
+                        </div>
+                        <p className="text-xs text-muted-foreground">@{profile.username}</p>
+                        {onlineUsers.has(profile.id) && <span className="text-[11px] text-green-500 font-medium">Online</span>}
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              )}
             </TabsContent>
 
-            {/* Requests Tab */}
-            <TabsContent value="requests" className="mt-0">
-              <ScrollArea className="h-[calc(100vh-280px)]">
-                {friendRequests.length === 0 ? (
-                  <div className="text-center py-20 px-4">
-                    <Users className="h-16 w-16 mx-auto mb-4 text-muted-foreground/40" />
-                    <h3 className="text-xl font-bold mb-2">Nenhum pedido</h3>
-                    <p className="text-muted-foreground text-sm">
-                      Quando alguém te enviar um pedido de amizade, ele aparecerá aqui.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="divide-y divide-border/30">
-                    <AnimatePresence>
-                      {friendRequests.map((request, index) => (
-                        <motion.div
-                          key={request.id}
-                          initial={{ opacity: 0, y: 20 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: index * 0.05 }}
-                          className="p-4"
-                        >
-                          <div className="flex items-start gap-3">
-                            <div 
-                              className="relative cursor-pointer"
-                              onClick={() => navigateToProfile(request.sender.id)}
-                            >
-                              <Avatar className="h-14 w-14 border-2 border-border/50">
-                                <AvatarImage src={request.sender.avatar_url || undefined} />
-                                <AvatarFallback className="bg-gradient-to-br from-primary/20 to-accent/20 text-lg font-bold">
-                                  {request.sender.first_name?.[0] || request.sender.username?.[0]}
-                                </AvatarFallback>
-                              </Avatar>
-                              <OnlineIndicator userId={request.sender.id} size="md" />
-                            </div>
-                            
-                            <div className="flex-1 min-w-0">
-                              <div 
-                                className="cursor-pointer"
-                                onClick={() => navigateToProfile(request.sender.id)}
-                              >
-                                <div className="flex items-center gap-1">
-                                  <p className="font-bold text-[15px] truncate hover:underline">
-                                    {request.sender.full_name || request.sender.first_name}
-                                  </p>
-                                  {request.sender.verified && (
-                                    <VerificationBadge verified={request.sender.verified} badgeType={request.sender.badge_type} size="sm" />
-                                  )}
-                                </div>
-                                <p className="text-sm text-muted-foreground truncate">@{request.sender.username}</p>
-                              </div>
-
-                              <div className="flex gap-2 mt-3">
-                                <Button
-                                  size="sm"
-                                  onClick={() => acceptFriendRequest(request.id, request.sender_id)}
-                                  className="flex-1 h-9 rounded-xl font-bold"
-                                >
-                                  Aceitar
-                                </Button>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => rejectFriendRequest(request.id)}
-                                  className="flex-1 h-9 rounded-xl font-bold"
-                                >
-                                  Rejeitar
-                                </Button>
-                              </div>
-                            </div>
+            {/* Requests */}
+            <TabsContent value="requests" className="mt-0 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 250px)' }}>
+              {friendRequests.length === 0 ? (
+                <div className="text-center py-20 px-4">
+                  <UserPlus className="h-14 w-14 mx-auto mb-3 text-muted-foreground/20" />
+                  <h3 className="text-lg font-bold mb-1">Nenhum pedido</h3>
+                  <p className="text-muted-foreground text-sm">Pedidos de amizade aparecerão aqui.</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-border/10">
+                  {friendRequests.map((request, index) => (
+                    <motion.div
+                      key={request.id}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.04 }}
+                      className="p-4"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="relative cursor-pointer" onClick={() => navigateToProfile(request.sender.id)}>
+                          <Avatar className="h-12 w-12">
+                            <AvatarImage src={request.sender.avatar_url || undefined} className="object-cover" />
+                            <AvatarFallback className="bg-gradient-to-br from-primary/10 to-accent/10 font-bold">
+                              {request.sender.first_name?.[0]}
+                            </AvatarFallback>
+                          </Avatar>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1">
+                            <p className="font-bold text-sm">{request.sender.full_name || request.sender.first_name}</p>
+                            {request.sender.verified && <VerificationBadge verified={request.sender.verified} badgeType={request.sender.badge_type} size="sm" />}
                           </div>
-                        </motion.div>
-                      ))}
-                    </AnimatePresence>
-                  </div>
-                )}
-              </ScrollArea>
+                          <p className="text-xs text-muted-foreground">@{request.sender.username}</p>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button size="sm" className="h-8 rounded-xl text-xs font-bold px-3" onClick={() => acceptFriendRequest(request.id, request.sender_id)}>
+                            <Check className="h-3 w-3 mr-1" />Aceitar
+                          </Button>
+                          <Button size="sm" variant="outline" className="h-8 rounded-xl text-xs font-bold px-3" onClick={() => rejectFriendRequest(request.id)}>
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              )}
             </TabsContent>
           </Tabs>
-        )}
+        ) : null}
 
         {/* Fullscreen Post Sheet */}
         <Sheet open={fullscreenSheet} onOpenChange={setFullscreenSheet}>
           <SheetContent side="bottom" className="h-full p-0 rounded-none">
             {selectedPost && (
               <div className="h-full flex flex-col bg-black">
-                {/* Header */}
                 <div className="flex items-center justify-between p-4 bg-background">
-                  <Button variant="ghost" size="icon" onClick={() => setFullscreenSheet(false)}>
-                    <X className="h-6 w-6" />
-                  </Button>
-                  <span className="font-semibold">Publicação</span>
-                  <Button variant="ghost" size="icon" onClick={() => navigate(`/post/${selectedPost.id}`)}>
-                    <MoreHorizontal className="h-6 w-6" />
-                  </Button>
+                  <Button variant="ghost" size="icon" onClick={() => setFullscreenSheet(false)}><X className="h-5 w-5" /></Button>
+                  <span className="font-bold text-sm">Publicação</span>
+                  <Button variant="ghost" size="icon" onClick={() => navigate(`/post/${selectedPost.id}`)}><MoreHorizontal className="h-5 w-5" /></Button>
                 </div>
-
-                {/* Content */}
                 <div className="flex-1 flex items-center justify-center">
                   {selectedPost.media_urls?.[0] ? (
                     selectedPost.media_urls[0].includes('.mp4') || selectedPost.media_urls[0].includes('.webm') ? (
-                      <video
-                        src={selectedPost.media_urls[0]}
-                        className="max-w-full max-h-full object-contain"
-                        controls
-                        autoPlay
-                      />
+                      <video src={selectedPost.media_urls[0]} className="max-w-full max-h-full object-contain" controls autoPlay />
                     ) : (
-                      <img
-                        src={selectedPost.media_urls[0]}
-                        alt=""
-                        className="max-w-full max-h-full object-contain"
-                      />
+                      <img src={selectedPost.media_urls[0]} alt="" className="max-w-full max-h-full object-contain" />
                     )
                   ) : (
-                    <div className="p-8 text-center">
-                      <p className="text-lg text-white">{selectedPost.content}</p>
-                    </div>
+                    <div className="p-8 text-center"><p className="text-lg text-white">{selectedPost.content}</p></div>
                   )}
                 </div>
-
-                {/* Caption */}
                 <div className="p-4 bg-background">
                   <div className="flex items-center gap-3 mb-2">
-                    <Avatar className="h-10 w-10">
+                    <Avatar className="h-9 w-9">
                       <AvatarImage src={selectedPost.profiles?.avatar_url || undefined} />
                       <AvatarFallback>{selectedPost.profiles?.first_name?.[0]}</AvatarFallback>
                     </Avatar>
-                    <div>
-                      <span className="font-semibold">{selectedPost.profiles?.username}</span>
-                    </div>
+                    <span className="font-bold text-sm">{selectedPost.profiles?.username}</span>
                   </div>
-                  {selectedPost.content && (
-                    <p className="text-sm">{selectedPost.content}</p>
-                  )}
+                  {selectedPost.content && <p className="text-sm">{selectedPost.content}</p>}
                 </div>
               </div>
             )}
