@@ -362,32 +362,35 @@ export default function Feed() {
     <ProtectedRoute>
       <MessageNotification />
       <div className="min-h-screen bg-background">
-        {/* Instagram iOS Header - Liquid Glass */}
-        <header className="fixed top-0 left-0 right-0 z-50 safe-area-top" style={{
-          background: 'rgba(var(--background-rgb, 255,255,255), 0.72)',
-          backdropFilter: 'blur(40px) saturate(180%)',
-          WebkitBackdropFilter: 'blur(40px) saturate(180%)',
-          borderBottom: '0.5px solid rgba(var(--foreground-rgb, 0,0,0), 0.08)',
-        }}>
-          <div className="flex items-center justify-between h-11 px-4 max-w-lg mx-auto">
+        {/* iOS Native Header - Liquid Glass */}
+        <header className="fixed top-0 left-0 right-0 z-50 safe-area-top"
+          style={{
+            background: 'hsl(var(--card) / 0.65)',
+            backdropFilter: 'blur(50px) saturate(200%) brightness(1.05)',
+            WebkitBackdropFilter: 'blur(50px) saturate(200%) brightness(1.05)',
+            borderBottom: '0.5px solid hsl(var(--border) / 0.2)',
+            boxShadow: '0 1px 3px hsl(var(--foreground) / 0.03)',
+          }}
+        >
+          <div className="flex items-center justify-between h-12 px-4 max-w-lg mx-auto">
             <div className="flex items-center gap-2">
-              <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full press-effect" onClick={() => navigate("/sidebar")}>
+              <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full active:scale-90 transition-transform" onClick={() => navigate("/sidebar")}>
                 <Menu className="h-[22px] w-[22px]" strokeWidth={1.5} />
               </Button>
               <Logo2026 size="md" />
             </div>
             <div className="flex items-center gap-0.5">
-              <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full press-effect" onClick={() => navigate("/notifications")}>
+              <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full active:scale-90 transition-transform" onClick={() => navigate("/notifications")}>
                 <Heart className="h-[22px] w-[22px]" strokeWidth={1.5} />
               </Button>
-              <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full press-effect" onClick={() => navigate("/messages")}>
+              <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full active:scale-90 transition-transform" onClick={() => navigate("/messages")}>
                 <Send className="h-[22px] w-[22px]" strokeWidth={1.5} />
               </Button>
             </div>
           </div>
         </header>
 
-        <div className="pt-11 pb-[52px] h-screen overflow-y-auto native-scroll">
+        <div className="pt-12 pb-[72px] h-screen overflow-y-auto native-scroll">
           <div className="max-w-lg mx-auto">
             {/* Stories Bar */}
             <StoriesBar onCreateStory={() => setCreateStoryOpen(true)} />
@@ -397,8 +400,8 @@ export default function Feed() {
               <UserSuggestions />
             </div>
 
-            {/* Posts Feed - Instagram Style */}
-            <div className="divide-y divide-border/50">
+            {/* Posts Feed */}
+            <div className="space-y-2 px-0">
               {posts.map((post, index) => {
                 const userReaction = getUserReaction(post);
                 const totalReactions = post.post_reactions?.length || 0;
@@ -412,7 +415,7 @@ export default function Feed() {
                       <SponsoredAd ad={sponsoredAds[adIndex]} likesCount={0} isLiked={false} userId={currentUserId} />
                     )}
                     
-                    <article className="bg-card">
+                    <article className="bg-card border-y border-border/20">
                       {/* Post Header - Instagram style */}
                       <div className="flex items-center gap-3 px-3 py-2.5">
                         <div className="p-[2px] rounded-full bg-gradient-to-tr from-amber-400 via-rose-500 to-purple-600">
