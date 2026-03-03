@@ -128,9 +128,10 @@ serve(async (req) => {
           } else {
             errorMsg = `${endpoint}: ${payoutResponse.status} - ${responseText.substring(0, 200)}`;
           }
-        } catch (e) {
-          errorMsg = `${endpoint}: Connection error - ${e.message}`;
-          console.error(`Payout error at ${endpoint}:`, e.message);
+      } catch (e: unknown) {
+          const errMsg = e instanceof Error ? e.message : String(e);
+          errorMsg = `${endpoint}: Connection error - ${errMsg}`;
+          console.error(`Payout error at ${endpoint}:`, errMsg);
         }
       }
 
@@ -162,8 +163,8 @@ serve(async (req) => {
               payoutReference = paymentData.reference || paymentData.id || `PAYMENT_${Date.now()}`;
             } catch {}
           }
-        } catch (e) {
-          console.error('Payment fallback error:', e.message);
+        } catch (e: unknown) {
+          console.error('Payment fallback error:', e instanceof Error ? e.message : e);
         }
       }
     } else {
