@@ -7,7 +7,8 @@ const corsHeaders = {
 
 interface SendSmsRequest {
   phoneNumber: string;
-  code: string;
+  action: 'send' | 'verify';
+  code?: string;
 }
 
 const handler = async (req: Request): Promise<Response> => {
@@ -16,57 +17,89 @@ const handler = async (req: Request): Promise<Response> => {
   }
 
   try {
-    const { phoneNumber, code }: SendSmsRequest = await req.json();
-    
-    console.log('Sending SMS verification code to:', phoneNumber);
+    const { phoneNumber, action, code }: SendSmsRequest = await req.json();
 
-    const apiKey = Deno.env.get('TEXTLOCAL_API_KEY');
-    if (!apiKey) {
-      throw new Error('TEXTLOCAL_API_KEY not configured');
+    const accountSid = Deno.env.get('TWILIO_ACCOUNT_SID');
+    const authToken = Deno.env.get('TWILIO_AUTH_TOKEN');
+    const serviceSid = Deno.env.get('TWILIO_VERIFY_SERVICE_SID');
+
+    if (!accountSid || !authToken || !serviceSid) {
+      throw new Error('Twilio credentials not configured');
     }
 
-    // Formatar mensagem
-    const message = `Seu código de verificação Blynk é: ${code}. Válido por 5 minutos.`;
+    const twilioAuth = btoa(`${accountSid}:${authToken}`);
 
-    // Enviar SMS via TextLocal
-    const formData = new URLSearchParams();
-    formData.append('apikey', apiKey);
-    formData.append('numbers', phoneNumber);
-    formData.append('message', message);
-    formData.append('sender', 'Blynk');
+    if (action === 'send') {
+      // Send verification code via Twilio Verify
+      const response = await fetch(
+        `https://verify.twilio.com/v2/Services/${serviceSid}/Verifications`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Basic ${twilioAuth}`,
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: new URLSearchParams({
+            To: phoneNumber,
+            Channel: 'sms',
+          }).toString(),
+        }
+      );
 
-    const response = await fetch('https://api.textlocal.in/send/', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: formData.toString(),
-    });
+      const result = await response.json();
+      console.log('Twilio send result:', JSON.stringify(result));
 
-    const result = await response.json();
-    
-    if (result.status !== 'success') {
-      console.error('TextLocal API error:', result);
-      throw new Error(result.errors?.[0]?.message || 'Failed to send SMS');
+      if (!response.ok) {
+        throw new Error(result.message || 'Failed to send SMS');
+      }
+
+      return new Response(
+        JSON.stringify({ success: true, status: result.status }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    } else if (action === 'verify') {
+      // Verify the code via Twilio Verify
+      if (!code) throw new Error('Code is required for verification');
+
+      const response = await fetch(
+        `https://verify.twilio.com/v2/Services/${serviceSid}/VerificationCheck`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Basic ${twilioAuth}`,
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: new URLSearchParams({
+            To: phoneNumber,
+            Code: code,
+          }).toString(),
+        }
+      );
+
+      const result = await response.json();
+      console.log('Twilio verify result:', JSON.stringify(result));
+
+      if (!response.ok) {
+        throw new Error(result.message || 'Verification failed');
+      }
+
+      return new Response(
+        JSON.stringify({ 
+          success: result.status === 'approved', 
+          status: result.status,
+          valid: result.valid 
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
-    console.log('SMS sent successfully:', result);
-
+    throw new Error('Invalid action');
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    console.error('Error in send-sms-verification:', message);
     return new Response(
-      JSON.stringify({ success: true, message: 'SMS enviado com sucesso' }),
-      {
-        status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      }
-    );
-  } catch (error: any) {
-    console.error('Error in send-sms-verification:', error);
-    return new Response(
-      JSON.stringify({ success: false, error: error.message }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      }
+      JSON.stringify({ success: false, error: message }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 };
