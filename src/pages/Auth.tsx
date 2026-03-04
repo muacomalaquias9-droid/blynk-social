@@ -16,11 +16,19 @@ import {
   User,
   AtSign,
   ShieldCheck,
-  Sparkles
+  Sparkles,
+  Phone,
+  MessageSquare
 } from 'lucide-react';
 import InputOTP from '@/components/auth/AuthOTPInput';
 
-type AuthStep = 'welcome' | 'login' | 'signup-name' | 'signup-username' | 'signup-email' | 'signup-password' | 'verify-email' | 'forgot-password';
+type AuthStep = 
+  | 'welcome' | 'login' 
+  | 'signup-name' | 'signup-username' | 'signup-credential' | 'signup-password' 
+  | 'verify-email' | 'verify-phone' 
+  | 'forgot-password';
+
+type CredentialType = 'email' | 'phone';
 
 export default function Auth() {
   const { user, loading } = useAuth();
@@ -29,10 +37,14 @@ export default function Auth() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [verificationCode, setVerificationCode] = useState('');
+  const [credentialType, setCredentialType] = useState<CredentialType>('email');
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [loginMode, setLoginMode] = useState<CredentialType>('email');
   
   const [formData, setFormData] = useState({
     firstName: '',
     email: '',
+    phone: '',
     username: '',
     password: '',
   });
@@ -42,6 +54,13 @@ export default function Auth() {
       setStep('signup-name');
     }
   }, [location]);
+
+  useEffect(() => {
+    if (resendCooldown > 0) {
+      const timer = setTimeout(() => setResendCooldown(c => c - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [resendCooldown]);
 
   if (loading) {
     return (
@@ -66,20 +85,45 @@ export default function Auth() {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
+  const isEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+  const isPhone = (v: string) => /^\+[1-9]\d{7,14}$/.test(v);
+  const credential = credentialType === 'email' ? formData.email : formData.phone;
+
+  // ── Login ──
   const handleLogin = async () => {
-    if (!formData.email || !formData.password) {
+    const loginCredential = loginMode === 'email' ? formData.email : formData.phone;
+    if (!loginCredential || !formData.password) {
       toast.error('Preencha todos os campos');
       return;
     }
 
     setIsLoading(true);
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email: formData.email,
-        password: formData.password,
-      });
+      if (loginMode === 'phone') {
+        // For phone login, we use email lookup by phone
+        // First find the email associated with this phone
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('email')
+          .eq('phone', formData.phone)
+          .single();
 
-      if (error) throw error;
+        if (!profile?.email) {
+          throw new Error('Número não encontrado. Cria uma conta primeiro.');
+        }
+
+        const { error } = await supabase.auth.signInWithPassword({
+          email: profile.email,
+          password: formData.password,
+        });
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({
+          email: formData.email,
+          password: formData.password,
+        });
+        if (error) throw error;
+      }
       toast.success('Login realizado com sucesso!');
     } catch (error: any) {
       if (error.message?.includes('Email not confirmed')) {
@@ -93,9 +137,53 @@ export default function Auth() {
     }
   };
 
+  // ── Send Phone Verification (Twilio) ──
+  const sendPhoneVerification = async () => {
+    setIsLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('send-sms-verification', {
+        body: { phoneNumber: formData.phone, action: 'send' },
+      });
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error || 'Erro ao enviar SMS');
+      
+      toast.success('Código SMS enviado!');
+      setResendCooldown(60);
+    } catch (error: any) {
+      console.error('SMS error:', error);
+      toast.error(error.message || 'Erro ao enviar SMS');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // ── Verify Phone Code (Twilio) ──
+  const verifyPhoneCode = async (): Promise<boolean> => {
+    try {
+      const { data, error } = await supabase.functions.invoke('send-sms-verification', {
+        body: { phoneNumber: formData.phone, action: 'verify', code: verificationCode },
+      });
+      if (error) throw error;
+      return data?.success === true;
+    } catch (error: any) {
+      console.error('Verify error:', error);
+      return false;
+    }
+  };
+
+  // ── Signup ──
   const handleSignup = async () => {
-    if (!formData.firstName || !formData.email || !formData.username || !formData.password) {
+    if (!formData.firstName || !formData.username || !formData.password) {
       toast.error('Preencha todos os campos');
+      return;
+    }
+
+    if (credentialType === 'email' && !formData.email) {
+      toast.error('Insere o teu email');
+      return;
+    }
+    if (credentialType === 'phone' && !formData.phone) {
+      toast.error('Insere o teu número de telefone');
       return;
     }
 
@@ -106,14 +194,73 @@ export default function Auth() {
 
     setIsLoading(true);
     try {
+      if (credentialType === 'phone') {
+        // Send SMS verification first, then create account after verification
+        await sendPhoneVerification();
+        setStep('verify-phone');
+      } else {
+        // Email signup
+        const { data, error } = await supabase.auth.signUp({
+          email: formData.email,
+          password: formData.password,
+          options: {
+            emailRedirectTo: `${window.location.origin}/`,
+            data: {
+              first_name: formData.firstName,
+              username: formData.username,
+            }
+          }
+        });
+
+        if (error) throw error;
+
+        if (data.user) {
+          await supabase.from('profiles').upsert({
+            id: data.user.id,
+            first_name: formData.firstName,
+            username: formData.username,
+            email: formData.email,
+          });
+        }
+
+        toast.success('Conta criada! Verifica o teu email.');
+        setStep('verify-email');
+      }
+    } catch (error: any) {
+      toast.error(error.message || 'Erro ao criar conta');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // ── Verify Phone & Create Account ──
+  const handleVerifyPhone = async () => {
+    if (verificationCode.length < 6) {
+      toast.error('Insere o código completo');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const verified = await verifyPhoneCode();
+      if (!verified) {
+        toast.error('Código inválido ou expirado');
+        return;
+      }
+
+      // Phone verified! Create account with a generated email
+      const tempEmail = `${formData.phone.replace(/\+/g, '')}@phone.blynk.app`;
+      
       const { data, error } = await supabase.auth.signUp({
-        email: formData.email,
+        email: tempEmail,
         password: formData.password,
         options: {
           emailRedirectTo: `${window.location.origin}/`,
           data: {
             first_name: formData.firstName,
             username: formData.username,
+            phone: formData.phone,
+            phone_verified: true,
           }
         }
       });
@@ -125,12 +272,12 @@ export default function Auth() {
           id: data.user.id,
           first_name: formData.firstName,
           username: formData.username,
-          email: formData.email,
+          phone: formData.phone,
+          email: tempEmail,
         });
       }
 
-      toast.success('Conta criada! Verifica o teu email.');
-      setStep('verify-email');
+      toast.success('Número verificado e conta criada!');
     } catch (error: any) {
       toast.error(error.message || 'Erro ao criar conta');
     } finally {
@@ -149,7 +296,6 @@ export default function Auth() {
       const { error } = await supabase.auth.resetPasswordForEmail(formData.email, {
         redirectTo: `${window.location.origin}/reset-password`,
       });
-
       if (error) throw error;
       toast.success('Email de recuperação enviado!');
       setStep('login');
@@ -189,7 +335,6 @@ export default function Auth() {
         token: verificationCode,
         type: 'signup',
       });
-
       if (error) throw error;
       toast.success('Email verificado com sucesso!');
     } catch (error: any) {
@@ -205,9 +350,10 @@ export default function Auth() {
       'login': 'welcome',
       'signup-name': 'welcome',
       'signup-username': 'signup-name',
-      'signup-email': 'signup-username',
-      'signup-password': 'signup-email',
+      'signup-credential': 'signup-username',
+      'signup-password': 'signup-credential',
       'verify-email': 'login',
+      'verify-phone': 'signup-credential',
       'forgot-password': 'login',
     };
     setStep(backMap[step]);
@@ -221,7 +367,6 @@ export default function Auth() {
 
   return (
     <div className="h-full flex flex-col bg-background overflow-y-auto">
-      {/* Header with back button */}
       {step !== 'welcome' && (
         <motion.div 
           initial={{ opacity: 0 }}
@@ -241,14 +386,12 @@ export default function Auth() {
 
       <div className="flex-1 flex flex-col justify-center px-6 pb-8 max-w-md mx-auto w-full">
         <AnimatePresence mode="wait">
-          {/* Welcome Screen */}
+          {/* ══════ Welcome ══════ */}
           {step === 'welcome' && (
             <motion.div
               key="welcome"
               variants={slideVariants}
-              initial="enter"
-              animate="center"
-              exit="exit"
+              initial="enter" animate="center" exit="exit"
               transition={{ duration: 0.25, ease: [0.2, 0, 0, 1] }}
               className="flex flex-col items-center text-center gap-8"
             >
@@ -282,7 +425,6 @@ export default function Auth() {
                 >
                   Iniciar sessão
                 </Button>
-
                 <Button
                   onClick={() => setStep('signup-name')}
                   variant="outline"
@@ -303,14 +445,12 @@ export default function Auth() {
             </motion.div>
           )}
 
-          {/* Login Screen */}
+          {/* ══════ Login ══════ */}
           {step === 'login' && (
             <motion.div
               key="login"
               variants={slideVariants}
-              initial="enter"
-              animate="center"
-              exit="exit"
+              initial="enter" animate="center" exit="exit"
               transition={{ duration: 0.25, ease: [0.2, 0, 0, 1] }}
               className="space-y-6"
             >
@@ -319,19 +459,54 @@ export default function Auth() {
                 <p className="text-muted-foreground">Inicia sessão na tua conta</p>
               </div>
 
+              {/* Login mode toggle */}
+              <div className="flex gap-2 p-1 bg-muted/50 rounded-xl">
+                <button
+                  onClick={() => setLoginMode('email')}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                    loginMode === 'email' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground'
+                  }`}
+                >
+                  <Mail className="h-4 w-4" /> Email
+                </button>
+                <button
+                  onClick={() => setLoginMode('phone')}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                    loginMode === 'phone' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground'
+                  }`}
+                >
+                  <Phone className="h-4 w-4" /> Telefone
+                </button>
+              </div>
+
               <div className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                    <Mail className="h-4 w-4" /> Email
-                  </label>
-                  <Input
-                    type="email"
-                    placeholder="nome@email.com"
-                    value={formData.email}
-                    onChange={(e) => updateFormData('email', e.target.value)}
-                    className="h-14 rounded-xl text-base bg-muted/50 border-0 focus-visible:ring-2 focus-visible:ring-primary"
-                  />
-                </div>
+                {loginMode === 'email' ? (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                      <Mail className="h-4 w-4" /> Email
+                    </label>
+                    <Input
+                      type="email"
+                      placeholder="nome@email.com"
+                      value={formData.email}
+                      onChange={(e) => updateFormData('email', e.target.value)}
+                      className="h-14 rounded-xl text-base bg-muted/50 border-0 focus-visible:ring-2 focus-visible:ring-primary"
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                      <Phone className="h-4 w-4" /> Número de telefone
+                    </label>
+                    <Input
+                      type="tel"
+                      placeholder="+244 9XX XXX XXX"
+                      value={formData.phone}
+                      onChange={(e) => updateFormData('phone', e.target.value)}
+                      className="h-14 rounded-xl text-base bg-muted/50 border-0 focus-visible:ring-2 focus-visible:ring-primary"
+                    />
+                  </div>
+                )}
 
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-muted-foreground flex items-center gap-2">
@@ -390,14 +565,12 @@ export default function Auth() {
             </motion.div>
           )}
 
-          {/* Signup Step 1: Name */}
+          {/* ══════ Signup Step 1: Name ══════ */}
           {step === 'signup-name' && (
             <motion.div
               key="signup-name"
               variants={slideVariants}
-              initial="enter"
-              animate="center"
-              exit="exit"
+              initial="enter" animate="center" exit="exit"
               transition={{ duration: 0.25, ease: [0.2, 0, 0, 1] }}
               className="space-y-6"
             >
@@ -439,14 +612,12 @@ export default function Auth() {
             </motion.div>
           )}
 
-          {/* Signup Step 2: Username */}
+          {/* ══════ Signup Step 2: Username ══════ */}
           {step === 'signup-username' && (
             <motion.div
               key="signup-username"
               variants={slideVariants}
-              initial="enter"
-              animate="center"
-              exit="exit"
+              initial="enter" animate="center" exit="exit"
               transition={{ duration: 0.25, ease: [0.2, 0, 0, 1] }}
               className="space-y-6"
             >
@@ -455,20 +626,20 @@ export default function Auth() {
                   <AtSign className="h-6 w-6 text-primary" />
                 </div>
                 <h2 className="text-3xl font-bold">Escolhe um username</h2>
-                <p className="text-muted-foreground">Usa letras, números e underscores. Podes alterá-lo depois.</p>
+                <p className="text-muted-foreground">Usa letras, números e underscores.</p>
               </div>
 
               <Input
                 placeholder="nome_de_utilizador"
                 value={formData.username}
                 onChange={(e) => updateFormData('username', e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
-                onKeyDown={(e) => e.key === 'Enter' && formData.username && setStep('signup-email')}
+                onKeyDown={(e) => e.key === 'Enter' && formData.username.length >= 3 && setStep('signup-credential')}
                 autoFocus
                 className="h-14 rounded-xl text-base bg-muted/50 border-0 focus-visible:ring-2 focus-visible:ring-primary"
               />
 
               <Button
-                onClick={() => setStep('signup-email')}
+                onClick={() => setStep('signup-credential')}
                 disabled={!formData.username.trim() || formData.username.length < 3}
                 className="w-full h-14 rounded-2xl text-base font-semibold bg-primary hover:bg-primary/90"
               >
@@ -477,38 +648,74 @@ export default function Auth() {
             </motion.div>
           )}
 
-          {/* Signup Step 3: Email */}
-          {step === 'signup-email' && (
+          {/* ══════ Signup Step 3: Email or Phone ══════ */}
+          {step === 'signup-credential' && (
             <motion.div
-              key="signup-email"
+              key="signup-credential"
               variants={slideVariants}
-              initial="enter"
-              animate="center"
-              exit="exit"
+              initial="enter" animate="center" exit="exit"
               transition={{ duration: 0.25, ease: [0.2, 0, 0, 1] }}
               className="space-y-6"
             >
               <div className="space-y-2">
                 <div className="h-12 w-12 rounded-2xl bg-primary/10 flex items-center justify-center mb-4">
-                  <Mail className="h-6 w-6 text-primary" />
+                  {credentialType === 'email' ? <Mail className="h-6 w-6 text-primary" /> : <Phone className="h-6 w-6 text-primary" />}
                 </div>
-                <h2 className="text-3xl font-bold">Qual é o teu email?</h2>
-                <p className="text-muted-foreground">Vamos enviar-te um código de verificação.</p>
+                <h2 className="text-3xl font-bold">
+                  {credentialType === 'email' ? 'Qual é o teu email?' : 'Qual é o teu número?'}
+                </h2>
+                <p className="text-muted-foreground">
+                  {credentialType === 'email' 
+                    ? 'Vamos enviar-te um código de verificação por email.' 
+                    : 'Vamos enviar-te um código SMS via Twilio.'}
+                </p>
               </div>
 
-              <Input
-                type="email"
-                placeholder="nome@email.com"
-                value={formData.email}
-                onChange={(e) => updateFormData('email', e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && formData.email && setStep('signup-password')}
-                autoFocus
-                className="h-14 rounded-xl text-base bg-muted/50 border-0 focus-visible:ring-2 focus-visible:ring-primary"
-              />
+              {/* Toggle email / phone */}
+              <div className="flex gap-2 p-1 bg-muted/50 rounded-xl">
+                <button
+                  onClick={() => setCredentialType('email')}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                    credentialType === 'email' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground'
+                  }`}
+                >
+                  <Mail className="h-4 w-4" /> Email
+                </button>
+                <button
+                  onClick={() => setCredentialType('phone')}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                    credentialType === 'phone' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground'
+                  }`}
+                >
+                  <Phone className="h-4 w-4" /> Telefone
+                </button>
+              </div>
+
+              {credentialType === 'email' ? (
+                <Input
+                  type="email"
+                  placeholder="nome@email.com"
+                  value={formData.email}
+                  onChange={(e) => updateFormData('email', e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && isEmail(formData.email) && setStep('signup-password')}
+                  autoFocus
+                  className="h-14 rounded-xl text-base bg-muted/50 border-0 focus-visible:ring-2 focus-visible:ring-primary"
+                />
+              ) : (
+                <Input
+                  type="tel"
+                  placeholder="+244 9XX XXX XXX"
+                  value={formData.phone}
+                  onChange={(e) => updateFormData('phone', e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && isPhone(formData.phone) && setStep('signup-password')}
+                  autoFocus
+                  className="h-14 rounded-xl text-base bg-muted/50 border-0 focus-visible:ring-2 focus-visible:ring-primary"
+                />
+              )}
 
               <Button
                 onClick={() => setStep('signup-password')}
-                disabled={!formData.email.trim() || !formData.email.includes('@')}
+                disabled={credentialType === 'email' ? !isEmail(formData.email) : !isPhone(formData.phone)}
                 className="w-full h-14 rounded-2xl text-base font-semibold bg-primary hover:bg-primary/90"
               >
                 Continuar
@@ -516,14 +723,12 @@ export default function Auth() {
             </motion.div>
           )}
 
-          {/* Signup Step 4: Password */}
+          {/* ══════ Signup Step 4: Password ══════ */}
           {step === 'signup-password' && (
             <motion.div
               key="signup-password"
               variants={slideVariants}
-              initial="enter"
-              animate="center"
-              exit="exit"
+              initial="enter" animate="center" exit="exit"
               transition={{ duration: 0.25, ease: [0.2, 0, 0, 1] }}
               className="space-y-6"
             >
@@ -532,7 +737,7 @@ export default function Auth() {
                   <Lock className="h-6 w-6 text-primary" />
                 </div>
                 <h2 className="text-3xl font-bold">Cria uma palavra-passe</h2>
-                <p className="text-muted-foreground">Mínimo de 6 caracteres. Mantém a tua conta segura.</p>
+                <p className="text-muted-foreground">Mínimo de 6 caracteres.</p>
               </div>
 
               <div className="relative">
@@ -556,7 +761,6 @@ export default function Auth() {
                 </Button>
               </div>
 
-              {/* Password strength indicator */}
               <div className="flex gap-1">
                 {[1, 2, 3, 4].map((i) => (
                   <div
@@ -586,14 +790,12 @@ export default function Auth() {
             </motion.div>
           )}
 
-          {/* Email Verification Screen */}
+          {/* ══════ Email Verification ══════ */}
           {step === 'verify-email' && (
             <motion.div
               key="verify-email"
               variants={slideVariants}
-              initial="enter"
-              animate="center"
-              exit="exit"
+              initial="enter" animate="center" exit="exit"
               transition={{ duration: 0.25, ease: [0.2, 0, 0, 1] }}
               className="space-y-6 text-center"
             >
@@ -604,7 +806,7 @@ export default function Auth() {
                   transition={{ type: "spring", stiffness: 200, damping: 15 }}
                   className="h-20 w-20 rounded-3xl bg-primary/10 flex items-center justify-center mx-auto"
                 >
-                  <ShieldCheck className="h-10 w-10 text-primary" />
+                  <Mail className="h-10 w-10 text-primary" />
                 </motion.div>
                 <h2 className="text-3xl font-bold">Verifica o teu email</h2>
                 <p className="text-muted-foreground">
@@ -614,11 +816,7 @@ export default function Auth() {
               </div>
 
               <div className="flex justify-center py-4">
-                <InputOTP
-                  value={verificationCode}
-                  onChange={setVerificationCode}
-                  length={6}
-                />
+                <InputOTP value={verificationCode} onChange={setVerificationCode} length={6} />
               </div>
 
               <Button
@@ -641,24 +839,73 @@ export default function Auth() {
                 </Button>
               </div>
 
-              <Button
-                variant="ghost"
-                onClick={() => setStep('login')}
-                className="text-muted-foreground text-sm"
-              >
+              <Button variant="ghost" onClick={() => setStep('login')} className="text-muted-foreground text-sm">
                 Voltar ao login
               </Button>
             </motion.div>
           )}
 
-          {/* Forgot Password Screen */}
+          {/* ══════ Phone Verification (Twilio) ══════ */}
+          {step === 'verify-phone' && (
+            <motion.div
+              key="verify-phone"
+              variants={slideVariants}
+              initial="enter" animate="center" exit="exit"
+              transition={{ duration: 0.25, ease: [0.2, 0, 0, 1] }}
+              className="space-y-6 text-center"
+            >
+              <div className="space-y-3">
+                <motion.div
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  transition={{ type: "spring", stiffness: 200, damping: 15 }}
+                  className="h-20 w-20 rounded-3xl bg-primary/10 flex items-center justify-center mx-auto"
+                >
+                  <MessageSquare className="h-10 w-10 text-primary" />
+                </motion.div>
+                <h2 className="text-3xl font-bold">Verifica o teu número</h2>
+                <p className="text-muted-foreground">
+                  Enviámos um SMS para{' '}
+                  <span className="font-semibold text-foreground">{formData.phone}</span>
+                </p>
+              </div>
+
+              <div className="flex justify-center py-4">
+                <InputOTP value={verificationCode} onChange={setVerificationCode} length={6} />
+              </div>
+
+              <Button
+                onClick={handleVerifyPhone}
+                disabled={isLoading || verificationCode.length < 6}
+                className="w-full h-14 rounded-2xl text-base font-semibold bg-primary hover:bg-primary/90"
+              >
+                {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : 'Verificar e criar conta'}
+              </Button>
+
+              <div className="space-y-2">
+                <p className="text-sm text-muted-foreground">Não recebeste o SMS?</p>
+                <Button
+                  variant="link"
+                  onClick={sendPhoneVerification}
+                  disabled={isLoading || resendCooldown > 0}
+                  className="text-primary font-semibold h-auto p-0"
+                >
+                  {resendCooldown > 0 ? `Reenviar em ${resendCooldown}s` : 'Reenviar SMS'}
+                </Button>
+              </div>
+
+              <Button variant="ghost" onClick={() => setStep('signup-credential')} className="text-muted-foreground text-sm">
+                Alterar número
+              </Button>
+            </motion.div>
+          )}
+
+          {/* ══════ Forgot Password ══════ */}
           {step === 'forgot-password' && (
             <motion.div
               key="forgot-password"
               variants={slideVariants}
-              initial="enter"
-              animate="center"
-              exit="exit"
+              initial="enter" animate="center" exit="exit"
               transition={{ duration: 0.25, ease: [0.2, 0, 0, 1] }}
               className="space-y-6"
             >
