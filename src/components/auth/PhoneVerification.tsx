@@ -17,7 +17,6 @@ export const PhoneVerification = ({ phoneNumber, onVerified, onBack }: PhoneVeri
   const [resendCooldown, setResendCooldown] = useState(0);
 
   useEffect(() => {
-    // Enviar código automaticamente ao montar o componente
     sendVerificationCode();
   }, []);
 
@@ -28,34 +27,16 @@ export const PhoneVerification = ({ phoneNumber, onVerified, onBack }: PhoneVeri
     }
   }, [resendCooldown]);
 
-  const generateCode = () => {
-    return Math.floor(100000 + Math.random() * 900000).toString();
-  };
-
   const sendVerificationCode = async () => {
     try {
       setLoading(true);
-      const verificationCode = generateCode();
-      const expiresAt = new Date();
-      expiresAt.setMinutes(expiresAt.getMinutes() + 5);
 
-      // Salvar código no banco
-      const { error: insertError } = await supabase
-        .from('phone_verification_codes')
-        .insert({
-          phone_number: phoneNumber,
-          code: verificationCode,
-          expires_at: expiresAt.toISOString(),
-        });
-
-      if (insertError) throw insertError;
-
-      // Enviar SMS via edge function
-      const { error: smsError } = await supabase.functions.invoke('send-sms-verification', {
-        body: { phoneNumber, code: verificationCode },
+      const { data, error } = await supabase.functions.invoke('send-sms-verification', {
+        body: { phoneNumber, action: 'send' },
       });
 
-      if (smsError) throw smsError;
+      if (error) throw error;
+      if (data && !data.success) throw new Error(data.error || 'Falha ao enviar SMS');
 
       toast.success('Código enviado via SMS');
       setResendCooldown(60);
@@ -76,31 +57,18 @@ export const PhoneVerification = ({ phoneNumber, onVerified, onBack }: PhoneVeri
     try {
       setLoading(true);
 
-      // Verificar código
-      const { data, error } = await supabase
-        .from('phone_verification_codes')
-        .select('*')
-        .eq('phone_number', phoneNumber)
-        .eq('code', code)
-        .eq('verified', false)
-        .gt('expires_at', new Date().toISOString())
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
+      const { data, error } = await supabase.functions.invoke('send-sms-verification', {
+        body: { phoneNumber, action: 'verify', code },
+      });
 
-      if (error || !data) {
+      if (error) throw error;
+
+      if (data?.success) {
+        toast.success('Número verificado com sucesso!');
+        onVerified();
+      } else {
         toast.error('Código inválido ou expirado');
-        return;
       }
-
-      // Marcar como verificado
-      await supabase
-        .from('phone_verification_codes')
-        .update({ verified: true })
-        .eq('id', data.id);
-
-      toast.success('Número verificado com sucesso!');
-      onVerified();
     } catch (error: any) {
       console.error('Error verifying code:', error);
       toast.error('Erro ao verificar código');
