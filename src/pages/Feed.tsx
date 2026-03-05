@@ -27,7 +27,6 @@ import { Logo2026 } from "@/components/Logo2026";
 import BottomNav from "@/components/BottomNav";
 import { useContentProtection } from "@/hooks/useContentProtection";
 
-
 interface Post {
   id: string;
   content: string;
@@ -79,7 +78,7 @@ export default function Feed() {
         setCurrentUserId(user.id);
         const [profileResult, savedResult] = await Promise.all([
           supabase.from('profiles').select('*').eq('id', user.id).single(),
-          supabase.from('saved_posts').select('post_id').eq('user_id', user.id)
+          supabase.from('saved_posts').select('post_id').eq('user_id', user.id),
         ]);
         if (profileResult.data) setMyProfile(profileResult.data);
         if (savedResult.data) setSavedPosts(savedResult.data.map(s => s.post_id));
@@ -88,37 +87,25 @@ export default function Feed() {
       setLoading(false);
     };
     loadData();
-
-    const channel = supabase
-      .channel("posts-changes")
+    const channel = supabase.channel("posts-changes")
       .on("postgres_changes", { event: "*", schema: "public", table: "posts" }, () => loadPosts())
       .subscribe();
-
     return () => { supabase.removeChannel(channel); };
   }, []);
 
-  // Intersection Observer for video autoplay/pause
   useEffect(() => {
     observerRef.current?.disconnect();
     observedVideosRef.current = new Set();
-
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
           const video = entry.target as HTMLVideoElement;
           if (entry.isIntersecting) {
             pauseAllAudio();
-            observedVideosRef.current.forEach((v) => {
-              if (v !== video && !v.paused) v.pause();
-            });
+            observedVideosRef.current.forEach((v) => { if (v !== video && !v.paused) v.pause(); });
             video.muted = false;
-            video.play().catch(() => {
-              video.muted = true;
-              video.play().catch(console.log);
-            });
-          } else {
-            if (!video.paused) video.pause();
-          }
+            video.play().catch(() => { video.muted = true; video.play().catch(console.log); });
+          } else { if (!video.paused) video.pause(); }
         });
       },
       { threshold: 0.55, rootMargin: '0px 0px -20% 0px' }
@@ -133,11 +120,9 @@ export default function Feed() {
   }, [posts]);
 
   const loadPosts = async () => {
-    const { data } = await supabase
-      .from("posts")
+    const { data } = await supabase.from("posts")
       .select(`*, profiles(id, username, full_name, first_name, avatar_url, verified, badge_type), post_likes(user_id), post_reactions(user_id, reaction_type), comments(id)`)
-      .order("created_at", { ascending: false })
-      .limit(30);
+      .order("created_at", { ascending: false }).limit(30);
     if (data) setPosts(data);
   };
 
@@ -148,13 +133,8 @@ export default function Feed() {
 
   const handleLike = async (postId: string) => {
     if (!currentUserId) return;
-    const { data: existingReaction } = await supabase
-      .from("post_reactions")
-      .select("*")
-      .eq("post_id", postId)
-      .eq("user_id", currentUserId)
-      .maybeSingle();
-
+    const { data: existingReaction } = await supabase.from("post_reactions").select("*")
+      .eq("post_id", postId).eq("user_id", currentUserId).maybeSingle();
     if (existingReaction) {
       await supabase.from("post_reactions").delete().eq("id", existingReaction.id);
       playClickSound();
@@ -163,7 +143,6 @@ export default function Feed() {
       if (!allowed) return;
       await supabase.from("post_reactions").insert({ post_id: postId, user_id: currentUserId, reaction_type: "heart" });
       playLikeSound();
-      // Trigger heart animation
       setLikeAnimations(prev => ({ ...prev, [postId]: true }));
       setTimeout(() => setLikeAnimations(prev => ({ ...prev, [postId]: false })), 1000);
     }
@@ -172,10 +151,8 @@ export default function Feed() {
 
   const handleDoubleTapLike = async (postId: string) => {
     const userReaction = posts.find(p => p.id === postId)?.post_reactions?.find(r => r.user_id === currentUserId);
-    if (!userReaction) {
-      await handleLike(postId);
-    } else {
-      // Show animation only
+    if (!userReaction) { await handleLike(postId); }
+    else {
       setLikeAnimations(prev => ({ ...prev, [postId]: true }));
       setTimeout(() => setLikeAnimations(prev => ({ ...prev, [postId]: false })), 1000);
     }
@@ -194,9 +171,7 @@ export default function Feed() {
     }
   };
 
-  const getUserReaction = (post: Post) => {
-    return post.post_reactions?.find(r => r.user_id === currentUserId)?.reaction_type;
-  };
+  const getUserReaction = (post: Post) => post.post_reactions?.find(r => r.user_id === currentUserId)?.reaction_type;
 
   const isVideo = (url: string) => {
     if (!url) return false;
@@ -206,25 +181,14 @@ export default function Feed() {
 
   const toggleVideoMute = (postId: string) => {
     const video = videoRefs.current[postId];
-    if (video) {
-      video.muted = !video.muted;
-      setMutedVideos({ ...mutedVideos, [postId]: video.muted });
-    }
+    if (video) { video.muted = !video.muted; setMutedVideos({ ...mutedVideos, [postId]: video.muted }); }
   };
 
   const registerVideoRef = (key: string) => (el: HTMLVideoElement | null) => {
     const prev = videoRefs.current[key];
-    if (prev && observerRef.current) {
-      observerRef.current.unobserve(prev);
-      observedVideosRef.current.delete(prev);
-    }
-    if (el) {
-      videoRefs.current[key] = el;
-      observedVideosRef.current.add(el);
-      observerRef.current?.observe(el);
-    } else {
-      delete videoRefs.current[key];
-    }
+    if (prev && observerRef.current) { observerRef.current.unobserve(prev); observedVideosRef.current.delete(prev); }
+    if (el) { videoRefs.current[key] = el; observedVideosRef.current.add(el); observerRef.current?.observe(el); }
+    else { delete videoRefs.current[key]; }
   };
 
   const VideoPlayer = ({ url, postId }: { url: string; postId: string }) => {
@@ -246,33 +210,23 @@ export default function Feed() {
     return (
       <div className="relative bg-black overflow-hidden" onClick={() => {
         const video = videoRefs.current[postId];
-        if (video) {
-          if (video.paused) { pauseAllAudio(); video.play(); }
-          else { video.pause(); }
-        }
+        if (video) { if (video.paused) { pauseAllAudio(); video.play(); } else { video.pause(); } }
       }}>
-        <video
-          ref={registerVideoRef(postId)}
-          className="w-full max-h-[600px] object-contain cursor-pointer"
+        <video ref={registerVideoRef(postId)} className="w-full max-h-[600px] object-contain cursor-pointer"
           playsInline muted={isMuted} loop preload="metadata"
-          onPlay={() => setIsPlaying(true)}
-          onPause={() => setIsPlaying(false)}
-          onError={() => setHasError(true)}
-        >
+          onPlay={() => setIsPlaying(true)} onPause={() => setIsPlaying(false)} onError={() => setHasError(true)}>
           <source src={url} type="video/mp4" />
         </video>
         {!isPlaying && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none bg-black/20">
-            <div className="h-16 w-16 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
-              <Play className="h-8 w-8 text-foreground fill-foreground ml-1" />
+            <div className="h-14 w-14 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
+              <Play className="h-7 w-7 text-foreground fill-foreground ml-0.5" />
             </div>
           </div>
         )}
-        <button
-          className="absolute bottom-4 right-4 h-9 w-9 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center border border-white/10"
-          onClick={(e) => { e.stopPropagation(); toggleVideoMute(postId); }}
-        >
-          {isMuted ? <VolumeX className="h-4 w-4 text-white" /> : <Volume2 className="h-4 w-4 text-white" />}
+        <button className="absolute bottom-3 right-3 h-8 w-8 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center border border-white/10"
+          onClick={(e) => { e.stopPropagation(); toggleVideoMute(postId); }}>
+          {isMuted ? <VolumeX className="h-3.5 w-3.5 text-white" /> : <Volume2 className="h-3.5 w-3.5 text-white" />}
         </button>
       </div>
     );
@@ -285,21 +239,13 @@ export default function Feed() {
       const url = mediaUrls[0];
       return (
         <div className="relative" onDoubleClick={() => handleDoubleTapLike(postId)}>
-          {isVideo(url) ? (
-            <VideoPlayer url={url} postId={postId} />
-          ) : (
+          {isVideo(url) ? <VideoPlayer url={url} postId={postId} /> : (
             <img src={url} alt="Post" className="w-full object-cover cursor-pointer" onClick={() => setGalleryImages(mediaUrls)} />
           )}
-          {/* Double tap heart animation */}
           <AnimatePresence>
             {likeAnimations[postId] && (
-              <motion.div
-                initial={{ scale: 0, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0, opacity: 0 }}
-                transition={{ type: "spring", stiffness: 300, damping: 15 }}
-                className="absolute inset-0 flex items-center justify-center pointer-events-none"
-              >
+              <motion.div initial={{ scale: 0, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0, opacity: 0 }}
+                transition={{ type: "spring", stiffness: 300, damping: 15 }} className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <Heart className="h-24 w-24 text-white fill-white drop-shadow-2xl" />
               </motion.div>
             )}
@@ -309,7 +255,7 @@ export default function Feed() {
     }
 
     return (
-      <div className={`grid gap-0.5 ${mediaUrls.length === 2 ? 'grid-cols-2' : 'grid-cols-2'}`} onDoubleClick={() => handleDoubleTapLike(postId)}>
+      <div className={`grid gap-[2px] ${mediaUrls.length === 2 ? 'grid-cols-2' : 'grid-cols-2'}`} onDoubleClick={() => handleDoubleTapLike(postId)}>
         {mediaUrls.slice(0, 4).map((url, idx) => (
           <div key={idx} className={`relative cursor-pointer ${mediaUrls.length === 3 && idx === 0 ? 'row-span-2' : ''}`}
             onClick={() => { if (!isVideo(url)) { setGalleryImages(mediaUrls.filter(u => !isVideo(u))); setGalleryIndex(idx); } }}>
@@ -318,7 +264,7 @@ export default function Feed() {
                 <video src={url} className="w-full h-full object-cover" playsInline muted preload="metadata"
                   onClick={(e) => { e.stopPropagation(); pauseAllAudio(); const vid = e.currentTarget; if (vid.paused) vid.play(); else vid.pause(); }} />
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <Play className="h-12 w-12 text-white/80 fill-white/80" />
+                  <Play className="h-10 w-10 text-white/80 fill-white/80" />
                 </div>
               </div>
             ) : (
@@ -326,23 +272,11 @@ export default function Feed() {
             )}
             {idx === 3 && mediaUrls.length > 4 && (
               <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
-                <span className="text-white text-2xl font-bold">+{mediaUrls.length - 4}</span>
+                <span className="text-white text-xl font-bold">+{mediaUrls.length - 4}</span>
               </div>
             )}
           </div>
         ))}
-        <AnimatePresence>
-          {likeAnimations[posts.find(p => p.media_urls === mediaUrls)?.id || ''] && (
-            <motion.div
-              initial={{ scale: 0, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0, opacity: 0 }}
-              className="absolute inset-0 flex items-center justify-center pointer-events-none col-span-2"
-            >
-              <Heart className="h-24 w-24 text-white fill-white drop-shadow-2xl" />
-            </motion.div>
-          )}
-        </AnimatePresence>
       </div>
     );
   };
@@ -351,9 +285,7 @@ export default function Feed() {
     return (
       <ProtectedRoute>
         <MessageNotification />
-        <div className="min-h-screen bg-background">
-          <FeedSkeleton />
-        </div>
+        <div className="min-h-screen bg-background"><FeedSkeleton /></div>
       </ProtectedRoute>
     );
   }
@@ -362,46 +294,40 @@ export default function Feed() {
     <ProtectedRoute>
       <MessageNotification />
       <div className="min-h-screen bg-background">
-        {/* iOS Native Header - Liquid Glass */}
+        {/* Header - Liquid Glass */}
         <header className="fixed top-0 left-0 right-0 z-50 safe-area-top"
           style={{
             background: 'hsl(var(--card) / 0.65)',
             backdropFilter: 'blur(50px) saturate(200%) brightness(1.05)',
             WebkitBackdropFilter: 'blur(50px) saturate(200%) brightness(1.05)',
-            borderBottom: '0.5px solid hsl(var(--border) / 0.2)',
-            boxShadow: '0 1px 3px hsl(var(--foreground) / 0.03)',
+            borderBottom: '0.5px solid hsl(var(--border) / 0.15)',
           }}
         >
-          <div className="flex items-center justify-between h-12 px-4 max-w-lg mx-auto">
+          <div className="flex items-center justify-between h-11 px-4 max-w-lg mx-auto">
             <div className="flex items-center gap-2">
-              <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full active:scale-90 transition-transform" onClick={() => navigate("/sidebar")}>
-                <Menu className="h-[22px] w-[22px]" strokeWidth={1.5} />
+              <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full active:scale-90 transition-transform" onClick={() => navigate("/sidebar")}>
+                <Menu className="h-[20px] w-[20px]" strokeWidth={1.5} />
               </Button>
               <Logo2026 size="md" />
             </div>
             <div className="flex items-center gap-0.5">
-              <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full active:scale-90 transition-transform" onClick={() => navigate("/notifications")}>
-                <Heart className="h-[22px] w-[22px]" strokeWidth={1.5} />
+              <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full active:scale-90 transition-transform" onClick={() => navigate("/notifications")}>
+                <Heart className="h-[20px] w-[20px]" strokeWidth={1.5} />
               </Button>
-              <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full active:scale-90 transition-transform" onClick={() => navigate("/messages")}>
-                <Send className="h-[22px] w-[22px]" strokeWidth={1.5} />
+              <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full active:scale-90 transition-transform" onClick={() => navigate("/messages")}>
+                <Send className="h-[20px] w-[20px]" strokeWidth={1.5} />
               </Button>
             </div>
           </div>
         </header>
 
-        <div className="pt-12 pb-[72px] h-screen overflow-y-auto native-scroll">
+        <div className="pt-11 pb-[72px] h-screen overflow-y-auto native-scroll">
           <div className="max-w-lg mx-auto">
-            {/* Stories Bar */}
             <StoriesBar onCreateStory={() => setCreateStoryOpen(true)} />
+            <div className="px-3 my-2"><UserSuggestions /></div>
 
-            {/* User Suggestions */}
-            <div className="px-3 my-2">
-              <UserSuggestions />
-            </div>
-
-            {/* Posts Feed */}
-            <div className="space-y-2 px-0">
+            {/* Posts Feed - New Card Design */}
+            <div className="space-y-0">
               {posts.map((post, index) => {
                 const userReaction = getUserReaction(post);
                 const totalReactions = post.post_reactions?.length || 0;
@@ -411,53 +337,55 @@ export default function Feed() {
 
                 return (
                   <div key={post.id}>
-                    {showAd && (
-                      <SponsoredAd ad={sponsoredAds[adIndex]} likesCount={0} isLiked={false} userId={currentUserId} />
-                    )}
+                    {showAd && <SponsoredAd ad={sponsoredAds[adIndex]} likesCount={0} isLiked={false} userId={currentUserId} />}
                     
-                    <article className="bg-card border-y border-border/20">
-                      {/* Post Header - Instagram style */}
-                      <div className="flex items-center gap-3 px-3 py-2.5">
-                        <div className="p-[2px] rounded-full bg-gradient-to-tr from-amber-400 via-rose-500 to-purple-600">
-                          <Avatar
-                            className="h-8 w-8 cursor-pointer border-2 border-background"
-                            onClick={() => navigate(`/profile/${post.profiles.id}`)}
-                          >
-                            <AvatarImage src={post.profiles.avatar_url} className="object-cover" />
-                            <AvatarFallback className="bg-muted text-xs font-semibold">
-                              {post.profiles.first_name?.[0] || post.profiles.username?.[0]}
-                            </AvatarFallback>
-                          </Avatar>
-                        </div>
+                    <article className="border-b border-border/15">
+                      {/* Post Header - Threads Style */}
+                      <div className="flex items-center gap-3 px-4 py-3">
+                        <Avatar className="h-9 w-9 cursor-pointer ring-1 ring-border/20" onClick={() => navigate(`/profile/${post.profiles.id}`)}>
+                          <AvatarImage src={post.profiles.avatar_url} className="object-cover" />
+                          <AvatarFallback className="bg-muted text-xs font-semibold">
+                            {post.profiles.first_name?.[0] || post.profiles.username?.[0]}
+                          </AvatarFallback>
+                        </Avatar>
                         
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5 cursor-pointer" onClick={() => navigate(`/profile/${post.profiles.id}`)}>
-                            <span className="font-semibold text-[13px] text-foreground">
-                              {post.profiles.username}
-                            </span>
+                            <span className="font-semibold text-[14px] text-foreground">{post.profiles.username}</span>
                             {(post.profiles.verified || hasSpecialBadgeEmoji(post.profiles.username) || hasSpecialBadgeEmoji(post.profiles.full_name)) && (
                               <VerificationBadge verified={post.profiles.verified} badgeType={post.profiles.badge_type} username={post.profiles.username} fullName={post.profiles.full_name} className="w-3.5 h-3.5" />
                             )}
-                            <span className="text-muted-foreground text-xs">
-                              · {formatDistanceToNow(new Date(post.created_at), { locale: ptBR, addSuffix: false })}
-                            </span>
                           </div>
-                          {post.music_name && (
-                            <p className="text-[11px] text-muted-foreground truncate flex items-center gap-1">
-                              <span className="inline-block w-2 h-2 rounded-full bg-primary animate-pulse" />
-                              {post.music_artist} · {post.music_name}
-                            </p>
-                          )}
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-muted-foreground text-[12px]">
+                              {formatDistanceToNow(new Date(post.created_at), { locale: ptBR, addSuffix: false })}
+                            </span>
+                            {post.music_name && (
+                              <span className="text-[11px] text-muted-foreground truncate flex items-center gap-1">
+                                <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+                                {post.music_artist}
+                              </span>
+                            )}
+                          </div>
                         </div>
                         
-                        <Button variant="ghost" size="icon" className="h-8 w-8 -mr-1" onClick={() => setOptionsSheet({ open: true, post })}>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 -mr-1 rounded-full" onClick={() => setOptionsSheet({ open: true, post })}>
                           <MoreHorizontal className="h-5 w-5" />
                         </Button>
                       </div>
 
+                      {/* Content - Before Media (Threads style) */}
+                      {post.content && (
+                        <div className="px-4 pb-2">
+                          <p className="text-[15px] leading-[22px]">
+                            {parseTextWithLinksAndMentions(post.content)}
+                          </p>
+                        </div>
+                      )}
+
                       {/* Media */}
                       {post.media_urls && post.media_urls.length > 0 && (
-                        <div className="relative overflow-hidden">
+                        <div className="relative overflow-hidden mx-4 rounded-2xl border border-border/10">
                           {renderMediaGrid(post.media_urls, post.id)}
                           {post.music_name && (
                             <div className="absolute bottom-3 left-3 right-3">
@@ -467,81 +395,51 @@ export default function Feed() {
                         </div>
                       )}
 
-                      {/* Music without media */}
                       {post.music_name && (!post.media_urls || post.media_urls.length === 0) && (
-                        <div className="px-3 py-2">
+                        <div className="px-4 py-2">
                           <MusicPlayer musicName={post.music_name} musicArtist={post.music_artist} musicUrl={post.music_url} />
                         </div>
                       )}
 
-                      {/* Instagram-style Action Buttons */}
-                      <div className="flex items-center justify-between px-3 py-2">
-                        <div className="flex items-center gap-4">
-                          <motion.button 
-                            onClick={() => handleLike(post.id)}
-                            whileTap={{ scale: 0.8 }}
-                            transition={{ type: "spring", stiffness: 400, damping: 17 }}
-                          >
-                            <Heart className={`h-[26px] w-[26px] transition-colors ${userReaction ? 'text-red-500 fill-red-500' : 'text-foreground'}`} strokeWidth={1.5} />
-                          </motion.button>
-                          <button onClick={() => navigate(`/comments/${post.id}`)}>
-                            <MessageCircle className="h-[26px] w-[26px] text-foreground" strokeWidth={1.5} />
-                          </button>
-                          <button onClick={() => {
-                            navigator.share?.({
-                              title: 'Publicação',
-                              text: post.content?.slice(0, 100),
-                              url: `${window.location.origin}/post/${post.id}`
-                            }).catch(() => {
-                              navigator.clipboard.writeText(`${window.location.origin}/post/${post.id}`);
-                              toast.success("Link copiado!");
-                            });
-                          }}>
-                            <Send className="h-[24px] w-[24px] text-foreground" strokeWidth={1.5} />
-                          </button>
-                        </div>
-                        <motion.button 
-                          onClick={() => handleSave(post.id)}
-                          whileTap={{ scale: 0.8 }}
-                        >
-                          <Bookmark className={`h-[26px] w-[26px] transition-colors ${isSaved ? 'fill-foreground text-foreground' : 'text-foreground'}`} strokeWidth={1.5} />
+                      {/* Actions - Threads Style */}
+                      <div className="flex items-center gap-1 px-4 py-2.5">
+                        <motion.button onClick={() => handleLike(post.id)} whileTap={{ scale: 0.8 }}
+                          transition={{ type: "spring", stiffness: 400, damping: 17 }}
+                          className="flex items-center gap-1.5 pr-3">
+                          <Heart className={`h-[22px] w-[22px] transition-colors ${userReaction ? 'text-red-500 fill-red-500' : 'text-foreground/70'}`} strokeWidth={1.5} />
+                          {totalReactions > 0 && (
+                            <span className={`text-[13px] font-medium ${userReaction ? 'text-red-500' : 'text-muted-foreground'}`}>{totalReactions}</span>
+                          )}
+                        </motion.button>
+                        
+                        <button onClick={() => navigate(`/comments/${post.id}`)} className="flex items-center gap-1.5 pr-3">
+                          <MessageCircle className="h-[22px] w-[22px] text-foreground/70" strokeWidth={1.5} />
+                          {post.comments.length > 0 && (
+                            <span className="text-[13px] font-medium text-muted-foreground">{post.comments.length}</span>
+                          )}
+                        </button>
+                        
+                        <button onClick={() => {
+                          navigator.share?.({ title: 'Publicação', text: post.content?.slice(0, 100), url: `${window.location.origin}/post/${post.id}` })
+                            .catch(() => { navigator.clipboard.writeText(`${window.location.origin}/post/${post.id}`); toast.success("Link copiado!"); });
+                        }} className="pr-3">
+                          <Send className="h-[20px] w-[20px] text-foreground/70" strokeWidth={1.5} />
+                        </button>
+                        
+                        <div className="flex-1" />
+                        
+                        <motion.button onClick={() => handleSave(post.id)} whileTap={{ scale: 0.8 }}>
+                          <Bookmark className={`h-[22px] w-[22px] transition-colors ${isSaved ? 'fill-foreground text-foreground' : 'text-foreground/70'}`} strokeWidth={1.5} />
                         </motion.button>
                       </div>
-
-                      {/* Likes count */}
-                      {totalReactions > 0 && (
-                        <button className="px-3 pb-1" onClick={() => navigate(`/post/${post.id}/likes`)}>
-                          <span className="text-[13px] font-semibold">{totalReactions.toLocaleString()} gosto{totalReactions !== 1 ? 's' : ''}</span>
-                        </button>
-                      )}
-
-                      {/* Content */}
-                      {post.content && (
-                        <div className="px-3 pb-1">
-                          <p className="text-[13px] leading-[18px]">
-                            <span className="font-semibold mr-1 cursor-pointer" onClick={() => navigate(`/profile/${post.profiles.id}`)}>
-                              {post.profiles.username}
-                            </span>
-                            {parseTextWithLinksAndMentions(post.content)}
-                          </p>
-                        </div>
-                      )}
-
-                      {/* Comments count */}
-                      {post.comments.length > 0 && (
-                        <button className="px-3 pb-3" onClick={() => navigate(`/comments/${post.id}`)}>
-                          <span className="text-[13px] text-muted-foreground">Ver {post.comments.length} comentário{post.comments.length !== 1 ? 's' : ''}</span>
-                        </button>
-                      )}
                     </article>
                   </div>
                 );
               })}
 
-              {/* End of feed */}
               {posts.length > 0 && (
-                <div className="py-8 text-center">
-                  <p className="text-sm text-muted-foreground">✓ Estás atualizado</p>
+                <div className="py-10 text-center">
+                  <p className="text-[13px] text-muted-foreground">✓ Estás atualizado</p>
                 </div>
               )}
             </div>
@@ -551,21 +449,12 @@ export default function Feed() {
         <BottomNav />
 
         {optionsSheet.post && (
-          <PostOptionsSheet
-            open={optionsSheet.open}
-            onOpenChange={(open) => setOptionsSheet({ ...optionsSheet, open })}
-            postId={optionsSheet.post.id}
-            postUserId={optionsSheet.post.user_id}
-            currentUserId={currentUserId}
-            mediaUrls={optionsSheet.post.media_urls}
-          />
+          <PostOptionsSheet open={optionsSheet.open} onOpenChange={(open) => setOptionsSheet({ ...optionsSheet, open })}
+            postId={optionsSheet.post.id} postUserId={optionsSheet.post.user_id} currentUserId={currentUserId} mediaUrls={optionsSheet.post.media_urls} />
         )}
 
         <CreateStory open={createStoryOpen} onOpenChange={setCreateStoryOpen} />
-
-        {galleryImages && (
-          <ImageGalleryViewer images={galleryImages} initialIndex={galleryIndex} onClose={() => setGalleryImages(null)} />
-        )}
+        {galleryImages && <ImageGalleryViewer images={galleryImages} initialIndex={galleryIndex} onClose={() => setGalleryImages(null)} />}
       </div>
     </ProtectedRoute>
   );
