@@ -10,10 +10,11 @@ import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Search, ArrowLeft, Edit, Check, CheckCheck, Camera, SlidersHorizontal, ChevronDown, TrendingUp } from 'lucide-react';
 import { MessagesSkeleton } from '@/components/loading/MessagesSkeleton';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import VerificationBadge, { hasSpecialBadgeEmoji } from '@/components/VerificationBadge';
 import BottomNav from '@/components/BottomNav';
+import { useUserPresence } from '@/hooks/useUserPresence';
 
 interface Conversation {
   id: string;
@@ -39,8 +40,8 @@ export default function Messages() {
   const [myProfile, setMyProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [showSearch, setShowSearch] = useState(false);
   const [activeTab, setActiveTab] = useState('principal');
+  const { onlineUsers } = useUserPresence();
 
   useEffect(() => {
     if (user) loadData();
@@ -113,9 +114,9 @@ export default function Messages() {
 
   const getMessagePreview = (msg: Conversation['lastMessage']) => {
     if (!msg) return '';
-    if (msg.message_type === 'image') return 'Foto';
-    if (msg.message_type === 'video') return 'Vídeo';
-    if (msg.message_type === 'audio') return 'Áudio';
+    if (msg.message_type === 'image') return '📷 Foto';
+    if (msg.message_type === 'video') return '🎥 Vídeo';
+    if (msg.message_type === 'audio') return '🎵 Áudio';
     return msg.content;
   };
 
@@ -134,26 +135,31 @@ export default function Messages() {
   return (
     <ProtectedRoute>
       <div className="flex flex-col h-screen bg-background overflow-hidden">
-        {/* Native App DM Header */}
-        <header className="app-header safe-area-top">
+        {/* Liquid Glass Header */}
+        <header className="sticky top-0 z-30 safe-area-top"
+          style={{
+            backdropFilter: 'blur(50px) saturate(200%)',
+            WebkitBackdropFilter: 'blur(50px) saturate(200%)',
+            backgroundColor: 'hsl(var(--background) / 0.72)',
+            borderBottom: '1px solid hsl(var(--border) / 0.5)',
+          }}
+        >
           <div className="flex items-center justify-between h-12 px-4">
             <div className="flex items-center gap-2">
-              <Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => navigate(-1)}>
+              <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full" onClick={() => navigate(-1)}>
                 <ArrowLeft className="h-5 w-5" />
               </Button>
               <div className="flex items-center gap-1">
                 <h1 className="text-lg font-bold">{myProfile?.username || 'Chats'}</h1>
-                <ChevronDown className="h-4 w-4" />
                 {totalUnread > 0 && (
-                  <span className="ml-1 h-2 w-2 rounded-full bg-red-500" />
+                  <span className="ml-1 bg-destructive text-destructive-foreground text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center">
+                    {totalUnread}
+                  </span>
                 )}
               </div>
             </div>
             <div className="flex items-center gap-1">
-              <Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => navigate('/friends')}>
-                <TrendingUp className="h-5 w-5" />
-              </Button>
-              <Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => navigate('/friends')}>
+              <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full" onClick={() => navigate('/friends')}>
                 <Edit className="h-5 w-5" />
               </Button>
             </div>
@@ -168,31 +174,25 @@ export default function Messages() {
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Pesquisar"
                 className="h-9 pl-9 rounded-xl bg-muted/50 border-0 text-sm"
+                style={{ fontSize: '16px' }}
               />
             </div>
           </div>
 
-          {/* Tabs - Instagram DM style */}
-          <div className="flex items-center gap-2 px-4 pb-2">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 rounded-lg"
-            >
-              <SlidersHorizontal className="h-4 w-4" />
-            </Button>
+          {/* Tabs */}
+          <div className="flex items-center gap-2 px-4 pb-2 overflow-x-auto">
             {['principal', 'pedidos', 'geral'].map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
-                className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors whitespace-nowrap ${
                   activeTab === tab
                     ? 'bg-foreground text-background'
                     : 'bg-muted text-muted-foreground'
                 }`}
               >
                 {tab === 'principal' && totalUnread > 0 && activeTab !== tab && (
-                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-red-500 mr-1" />
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-destructive mr-1" />
                 )}
                 {tab.charAt(0).toUpperCase() + tab.slice(1)}
                 {tab === 'principal' && totalUnread > 0 && ` ${totalUnread}`}
@@ -219,10 +219,11 @@ export default function Messages() {
               </Button>
             </motion.div>
           ) : (
-            <div className="pb-16">
+            <div className="pb-24">
               {filteredConversations.map((conv, index) => {
                 const isUnread = conv.lastMessage && !conv.lastMessage.read && conv.lastMessage.sender_id === conv.id;
                 const isOwnMessage = conv.lastMessage?.sender_id === user?.id;
+                const isUserOnline = onlineUsers.has(conv.id);
 
                 return (
                   <motion.button
@@ -240,7 +241,9 @@ export default function Messages() {
                           {conv.first_name?.[0]}
                         </AvatarFallback>
                       </Avatar>
-                      <div className="absolute bottom-0 right-0 h-3.5 w-3.5 bg-green-500 rounded-full border-2 border-card" />
+                      {isUserOnline && (
+                        <div className="absolute bottom-0 right-0 h-3.5 w-3.5 bg-green-500 rounded-full border-2 border-background" />
+                      )}
                     </div>
 
                     <div className="flex-1 text-left min-w-0">
@@ -250,6 +253,9 @@ export default function Messages() {
                         </span>
                         {(conv.verified || hasSpecialBadgeEmoji(conv.username)) && (
                           <VerificationBadge verified={conv.verified} badgeType={conv.badge_type} username={conv.username} className="w-4 h-4" />
+                        )}
+                        {isUserOnline && (
+                          <span className="text-[10px] text-green-500 font-medium">online</span>
                         )}
                       </div>
                       {conv.lastMessage && (
@@ -271,7 +277,9 @@ export default function Messages() {
 
                     <div className="flex items-center gap-2">
                       {conv.unreadCount > 0 && (
-                        <div className="h-2 w-2 rounded-full bg-primary" />
+                        <div className="bg-primary text-primary-foreground text-[10px] font-bold h-5 min-w-[20px] rounded-full flex items-center justify-center px-1">
+                          {conv.unreadCount}
+                        </div>
                       )}
                       <Camera className="h-5 w-5 text-muted-foreground" />
                     </div>
