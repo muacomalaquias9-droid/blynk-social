@@ -144,6 +144,34 @@
     -webkit-touch-callout: none;
   }
 
+  /* iOS Input Fix - prevent zoom and ensure focus works on all iPhones */
+  input, textarea, select {
+    user-select: text !important;
+    -webkit-user-select: text !important;
+    font-size: 16px !important; /* Prevents iOS zoom on focus */
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    touch-action: manipulation;
+  }
+
+  input:focus, textarea:focus, select:focus {
+    outline: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Ensure virtual keyboard works on older iPhones */
+  @supports (-webkit-touch-callout: none) {
+    body.keyboard-open {
+      position: static !important;
+      overflow: auto !important;
+    }
+    
+    input:focus ~ *, textarea:focus ~ * {
+      scroll-margin-bottom: 300px;
+    }
+  }
+
   /* Native app overscroll behavior */
   html, body {
     overscroll-behavior-y: none;
