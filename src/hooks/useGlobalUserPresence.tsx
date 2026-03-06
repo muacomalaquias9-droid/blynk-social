@@ -9,7 +9,6 @@ export const useGlobalUserPresence = () => {
   useEffect(() => {
     if (!user) return;
 
-    // Marcar como online ao entrar
     const setOnline = async () => {
       await supabase.from('user_presence').upsert({
         user_id: user.id,
@@ -18,8 +17,8 @@ export const useGlobalUserPresence = () => {
       });
     };
 
-    // Marcar como offline ao sair
     const setOffline = async () => {
+      // Use sendBeacon for reliable offline marking on page close
       await supabase.from('user_presence').update({
         is_online: false,
         last_seen: new Date().toISOString(),
@@ -28,10 +27,17 @@ export const useGlobalUserPresence = () => {
 
     setOnline();
 
-    // Atualizar presença a cada 30 segundos
+    // Heartbeat every 30s - if user misses 2 heartbeats (60s), they're considered offline
     const interval = setInterval(setOnline, 30000);
 
-    // Eventos de visibilidade
+    // Cleanup stale online users (haven't sent heartbeat in 90s)
+    const cleanupInterval = setInterval(async () => {
+      const cutoff = new Date(Date.now() - 90000).toISOString();
+      await supabase.from('user_presence').update({ is_online: false })
+        .eq('is_online', true)
+        .lt('last_seen', cutoff);
+    }, 60000);
+
     const handleVisibilityChange = () => {
       if (document.hidden) {
         setOffline();
@@ -40,9 +46,11 @@ export const useGlobalUserPresence = () => {
       }
     };
 
-    // Evento de beforeunload
     const handleBeforeUnload = () => {
-      setOffline();
+      // Use navigator.sendBeacon for reliability
+      const url = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/user_presence?user_id=eq.${user.id}`;
+      const body = JSON.stringify({ is_online: false, last_seen: new Date().toISOString() });
+      navigator.sendBeacon?.(url, new Blob([body], { type: 'application/json' }));
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -51,6 +59,7 @@ export const useGlobalUserPresence = () => {
 
     return () => {
       clearInterval(interval);
+      clearInterval(cleanupInterval);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('beforeunload', handleBeforeUnload);
       window.removeEventListener('pagehide', handleBeforeUnload);
