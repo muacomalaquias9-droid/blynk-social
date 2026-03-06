@@ -184,7 +184,7 @@ export default function Create() {
               Cancelar
             </Button>
             <h1 className="text-base font-bold">
-              {step === 'compose' ? 'Nova thread' : step === 'edit' ? 'Editar' : 'Música'}
+              {step === 'compose' ? 'Nova Blincada de publicação' : step === 'edit' ? 'Editar' : 'Música'}
             </h1>
             {step === 'compose' && hasVideo ? (
               <Button onClick={() => setStep('edit')} size="sm" variant="ghost" className="font-semibold text-primary">
@@ -201,7 +201,7 @@ export default function Create() {
                 size="sm"
                 className="rounded-full px-5 font-semibold"
               >
-                {loading ? "..." : "Publicar"}
+                {loading ? "..." : "Blincar"}
               </Button>
             )}
           </div>
@@ -226,7 +226,7 @@ export default function Create() {
               <div className="flex-1 pb-4">
                 <p className="font-semibold text-sm mb-1">{displayName || 'User'}</p>
                 <MentionTextarea
-                  placeholder="Comece uma thread..."
+                  placeholder="Comece uma Blincada na Blynk..."
                   value={content}
                   onChange={setContent}
                   rows={4}
