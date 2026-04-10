@@ -75,8 +75,8 @@ export default function Chat() {
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
@@ -96,7 +96,7 @@ export default function Chat() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordStreamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
-  const recordTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const recordTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
   const { isOnline } = useUserPresence(friendId);
   const { typingUsers, setTyping } = useTypingIndicator(friendId || '');

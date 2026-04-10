@@ -52,8 +52,8 @@ export default function VerificationCheckout() {
   const [existingSub, setExistingSub] = useState<any>(null);
   const [timeLeft, setTimeLeft] = useState<number>(0);
   const [checkCount, setCheckCount] = useState(0);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
-  const pollRef = useRef<NodeJS.Timeout | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // User profile data for payment
   const [userName, setUserName] = useState("");

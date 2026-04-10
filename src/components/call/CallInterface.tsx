@@ -33,7 +33,7 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
   }, []);
 
   useEffect(() => {
-    let interval: NodeJS.Timeout;
+    let interval: ReturnType<typeof setTimeout>;
     if (isConnected) {
       interval = setInterval(() => setCallDuration(prev => prev + 1), 1000);
     }

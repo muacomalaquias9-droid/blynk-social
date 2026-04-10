@@ -339,7 +339,7 @@ export default function Comments() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
-  const recordTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const recordTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { processCommentHashtagsAndMentions } = useHashtagsAndMentions();
 
   useEffect(() => {

@@ -40,7 +40,7 @@ export default function MessageBubble({ message, isSent, hideMedia = false, isGr
   const [pickerPosition, setPickerPosition] = useState({ x: 0, y: 0 });
   const [reactions, setReactions] = useState<Reaction[]>([]);
   const [myReaction, setMyReaction] = useState<string | null>(null);
-  const touchTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const touchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchStartPos = useRef({ x: 0, y: 0 });
   const messageRef = useRef<HTMLDivElement>(null);
 

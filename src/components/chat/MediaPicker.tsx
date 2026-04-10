@@ -15,7 +15,7 @@ export default function MediaPicker({ onMediaSelect }: MediaPickerProps) {
   const [showGifPicker, setShowGifPicker] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { toast } = useToast();
 
   const uploadFile = async (file: File, folder: string) => {

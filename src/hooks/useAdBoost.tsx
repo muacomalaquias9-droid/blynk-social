@@ -12,7 +12,7 @@ export const useAdBoost = (adId: string, isActive: boolean) => {
     // Quantidade aleatória de likes a adicionar (1-3 por vez)
     const getRandomLikes = () => Math.floor(Math.random() * 3) + 1;
 
-    let timeoutId: NodeJS.Timeout;
+    let timeoutId: ReturnType<typeof setTimeout>;
 
     const addBoostLikes = async () => {
       try {
