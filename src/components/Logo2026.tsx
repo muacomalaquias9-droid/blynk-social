@@ -1,4 +1,4 @@
-import blynk2026Logo from '@/assets/blynk-2026-logo.png';
+import blynkLogo from '@/assets/blynk-logo-new.png';
 
 interface Logo2026Props {
   className?: string;
@@ -7,16 +7,16 @@ interface Logo2026Props {
 
 export const Logo2026 = ({ className = '', size = 'md' }: Logo2026Props) => {
   const sizeClasses = {
-    sm: 'h-8',
-    md: 'h-10',
-    lg: 'h-14',
-    xl: 'h-20',
+    sm: 'h-7',
+    md: 'h-9',
+    lg: 'h-12',
+    xl: 'h-16',
   };
 
   return (
     <img 
-      src={blynk2026Logo} 
-      alt="Blynk 2026" 
+      src={blynkLogo} 
+      alt="Blynk" 
       className={`${sizeClasses[size]} w-auto object-contain ${className}`}
     />
   );

@@ -38,7 +38,7 @@ export default function CallInterface() {
   }, [userId, user]);
 
   useEffect(() => {
-    let interval: NodeJS.Timeout;
+    let interval: ReturnType<typeof setTimeout>;
     if (callStatus === 'connected') {
       interval = setInterval(() => {
         setCallDuration(prev => prev + 1);
