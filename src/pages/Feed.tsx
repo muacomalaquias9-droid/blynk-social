@@ -64,6 +64,7 @@ export default function Feed() {
   const [galleryIndex, setGalleryIndex] = useState(0);
   const [myProfile, setMyProfile] = useState<any>(null);
   const [savedPosts, setSavedPosts] = useState<string[]>([]);
+  const [blockedUserIds, setBlockedUserIds] = useState<string[]>([]);
   const [optionsSheet, setOptionsSheet] = useState<{ open: boolean; post: Post | null }>({ open: false, post: null });
   const [mutedVideos, setMutedVideos] = useState<{ [key: string]: boolean }>({});
   const [likeAnimations, setLikeAnimations] = useState<{ [key: string]: boolean }>({});
@@ -76,12 +77,14 @@ export default function Feed() {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         setCurrentUserId(user.id);
-        const [profileResult, savedResult] = await Promise.all([
+        const [profileResult, savedResult, blockedResult] = await Promise.all([
           supabase.from('profiles').select('*').eq('id', user.id).single(),
           supabase.from('saved_posts').select('post_id').eq('user_id', user.id),
+          supabase.from('blocked_accounts').select('user_id'),
         ]);
         if (profileResult.data) setMyProfile(profileResult.data);
         if (savedResult.data) setSavedPosts(savedResult.data.map(s => s.post_id));
+        if (blockedResult.data) setBlockedUserIds(blockedResult.data.map(b => b.user_id));
       }
       await Promise.all([loadPosts(), loadSponsoredAds()]);
       setLoading(false);
@@ -198,9 +201,9 @@ export default function Feed() {
 
     if (hasError) {
       return (
-        <div className="relative bg-muted overflow-hidden aspect-video flex items-center justify-center">
+        <div className="relative bg-muted overflow-hidden aspect-video flex items-center justify-center rounded-2xl">
           <div className="text-center p-4">
-            <Play className="h-12 w-12 text-muted-foreground mx-auto mb-2" />
+            <Play className="h-10 w-10 text-muted-foreground mx-auto mb-2" />
             <p className="text-sm text-muted-foreground">Erro ao carregar vídeo</p>
           </div>
         </div>
@@ -208,11 +211,11 @@ export default function Feed() {
     }
 
     return (
-      <div className="relative bg-black overflow-hidden" onClick={() => {
+      <div className="relative bg-black overflow-hidden rounded-2xl" onClick={() => {
         const video = videoRefs.current[postId];
         if (video) { if (video.paused) { pauseAllAudio(); video.play(); } else { video.pause(); } }
       }}>
-        <video ref={registerVideoRef(postId)} className="w-full max-h-[600px] object-contain cursor-pointer"
+        <video ref={registerVideoRef(postId)} className="w-full max-h-[500px] object-contain cursor-pointer"
           playsInline muted={isMuted} loop preload="metadata"
           onPlay={() => setIsPlaying(true)} onPause={() => setIsPlaying(false)} onError={() => setHasError(true)}>
           <source src={url} type="video/mp4" />
@@ -234,13 +237,12 @@ export default function Feed() {
 
   const renderMediaGrid = (mediaUrls: string[], postId: string) => {
     if (!mediaUrls || mediaUrls.length === 0) return null;
-
     if (mediaUrls.length === 1) {
       const url = mediaUrls[0];
       return (
         <div className="relative" onDoubleClick={() => handleDoubleTapLike(postId)}>
           {isVideo(url) ? <VideoPlayer url={url} postId={postId} /> : (
-            <img src={url} alt="Post" className="w-full object-cover cursor-pointer" onClick={() => setGalleryImages(mediaUrls)} />
+            <img src={url} alt="Post" className="w-full object-cover rounded-2xl cursor-pointer" onClick={() => setGalleryImages(mediaUrls)} />
           )}
           <AnimatePresence>
             {likeAnimations[postId] && (
@@ -253,9 +255,8 @@ export default function Feed() {
         </div>
       );
     }
-
     return (
-      <div className={`grid gap-[2px] ${mediaUrls.length === 2 ? 'grid-cols-2' : 'grid-cols-2'}`} onDoubleClick={() => handleDoubleTapLike(postId)}>
+      <div className={`grid gap-1 rounded-2xl overflow-hidden ${mediaUrls.length === 2 ? 'grid-cols-2' : 'grid-cols-2'}`} onDoubleClick={() => handleDoubleTapLike(postId)}>
         {mediaUrls.slice(0, 4).map((url, idx) => (
           <div key={idx} className={`relative cursor-pointer ${mediaUrls.length === 3 && idx === 0 ? 'row-span-2' : ''}`}
             onClick={() => { if (!isVideo(url)) { setGalleryImages(mediaUrls.filter(u => !isVideo(u))); setGalleryIndex(idx); } }}>
@@ -281,6 +282,9 @@ export default function Feed() {
     );
   };
 
+  // Filter out blocked users
+  const visiblePosts = posts.filter(post => !blockedUserIds.includes(post.user_id));
+
   if (loading) {
     return (
       <ProtectedRoute>
@@ -294,12 +298,12 @@ export default function Feed() {
     <ProtectedRoute>
       <MessageNotification />
       <div className="min-h-screen bg-background">
-        {/* Header - Liquid Glass */}
+        {/* Header */}
         <header className="fixed top-0 left-0 right-0 z-50 safe-area-top"
           style={{
             background: 'hsl(var(--card) / 0.65)',
-            backdropFilter: 'blur(50px) saturate(200%) brightness(1.05)',
-            WebkitBackdropFilter: 'blur(50px) saturate(200%) brightness(1.05)',
+            backdropFilter: 'blur(40px) saturate(180%)',
+            WebkitBackdropFilter: 'blur(40px) saturate(180%)',
             borderBottom: '0.5px solid hsl(var(--border) / 0.15)',
           }}
         >
@@ -308,7 +312,7 @@ export default function Feed() {
               <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full active:scale-90 transition-transform" onClick={() => navigate("/sidebar")}>
                 <Menu className="h-[20px] w-[20px]" strokeWidth={1.5} />
               </Button>
-              <Logo2026 size="md" />
+              <Logo2026 size="sm" />
             </div>
             <div className="flex items-center gap-0.5">
               <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full active:scale-90 transition-transform" onClick={() => navigate("/notifications")}>
@@ -326,9 +330,9 @@ export default function Feed() {
             <StoriesBar onCreateStory={() => setCreateStoryOpen(true)} />
             <div className="px-3 my-2"><UserSuggestions /></div>
 
-            {/* Posts Feed - New Card Design */}
+            {/* Posts Feed */}
             <div className="space-y-0">
-              {posts.map((post, index) => {
+              {visiblePosts.map((post, index) => {
                 const userReaction = getUserReaction(post);
                 const totalReactions = post.post_reactions?.length || 0;
                 const isSaved = savedPosts.includes(post.id);
@@ -339,10 +343,10 @@ export default function Feed() {
                   <div key={post.id}>
                     {showAd && <SponsoredAd ad={sponsoredAds[adIndex]} likesCount={0} isLiked={false} userId={currentUserId} />}
                     
-                    <article className="border-b border-border/15">
-                      {/* Post Header - Threads Style */}
-                      <div className="flex items-center gap-3 px-4 py-3">
-                        <Avatar className="h-9 w-9 cursor-pointer ring-1 ring-border/20" onClick={() => navigate(`/profile/${post.profiles.id}`)}>
+                    <article className="border-b border-border/10 pb-1">
+                      {/* Header */}
+                      <div className="flex items-center gap-3 px-4 py-2.5">
+                        <Avatar className="h-9 w-9 cursor-pointer" onClick={() => navigate(`/profile/${post.profiles.id}`)}>
                           <AvatarImage src={post.profiles.avatar_url} className="object-cover" />
                           <AvatarFallback className="bg-muted text-xs font-semibold">
                             {post.profiles.first_name?.[0] || post.profiles.username?.[0]}
@@ -351,22 +355,20 @@ export default function Feed() {
                         
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5 cursor-pointer" onClick={() => navigate(`/profile/${post.profiles.id}`)}>
-                            <span className="font-semibold text-[14px] text-foreground">{post.profiles.username}</span>
+                            <span className="font-semibold text-[13px]">{post.profiles.username}</span>
                             {(post.profiles.verified || hasSpecialBadgeEmoji(post.profiles.username) || hasSpecialBadgeEmoji(post.profiles.full_name)) && (
                               <VerificationBadge verified={post.profiles.verified} badgeType={post.profiles.badge_type} username={post.profiles.username} fullName={post.profiles.full_name} className="w-3.5 h-3.5" />
                             )}
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-muted-foreground text-[12px]">
-                              {formatDistanceToNow(new Date(post.created_at), { locale: ptBR, addSuffix: false })}
+                            <span className="text-muted-foreground text-[11px]">
+                              · {formatDistanceToNow(new Date(post.created_at), { locale: ptBR, addSuffix: false })}
                             </span>
-                            {post.music_name && (
-                              <span className="text-[11px] text-muted-foreground truncate flex items-center gap-1">
-                                <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
-                                {post.music_artist}
-                              </span>
-                            )}
                           </div>
+                          {post.music_name && (
+                            <span className="text-[10px] text-muted-foreground truncate flex items-center gap-1">
+                              <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+                              {post.music_artist}
+                            </span>
+                          )}
                         </div>
                         
                         <Button variant="ghost" size="icon" className="h-8 w-8 -mr-1 rounded-full" onClick={() => setOptionsSheet({ open: true, post })}>
@@ -374,10 +376,10 @@ export default function Feed() {
                         </Button>
                       </div>
 
-                      {/* Content - Before Media (Threads style) */}
+                      {/* Content */}
                       {post.content && (
                         <div className="px-4 pb-2">
-                          <p className="text-[15px] leading-[22px]">
+                          <p className="text-[14px] leading-[20px]">
                             {parseTextWithLinksAndMentions(post.content)}
                           </p>
                         </div>
@@ -385,7 +387,7 @@ export default function Feed() {
 
                       {/* Media */}
                       {post.media_urls && post.media_urls.length > 0 && (
-                        <div className="relative overflow-hidden mx-4 rounded-2xl border border-border/10">
+                        <div className="relative overflow-hidden mx-4 mb-1">
                           {renderMediaGrid(post.media_urls, post.id)}
                           {post.music_name && (
                             <div className="absolute bottom-3 left-3 right-3">
@@ -401,21 +403,21 @@ export default function Feed() {
                         </div>
                       )}
 
-                      {/* Actions - Threads Style */}
-                      <div className="flex items-center gap-1 px-4 py-2.5">
+                      {/* Actions */}
+                      <div className="flex items-center gap-1 px-4 py-2">
                         <motion.button onClick={() => handleLike(post.id)} whileTap={{ scale: 0.8 }}
                           transition={{ type: "spring", stiffness: 400, damping: 17 }}
                           className="flex items-center gap-1.5 pr-3">
-                          <Heart className={`h-[22px] w-[22px] transition-colors ${userReaction ? 'text-red-500 fill-red-500' : 'text-foreground/70'}`} strokeWidth={1.5} />
+                          <Heart className={`h-[21px] w-[21px] transition-colors ${userReaction ? 'text-red-500 fill-red-500' : 'text-foreground/60'}`} strokeWidth={1.5} />
                           {totalReactions > 0 && (
-                            <span className={`text-[13px] font-medium ${userReaction ? 'text-red-500' : 'text-muted-foreground'}`}>{totalReactions}</span>
+                            <span className={`text-[12px] font-medium ${userReaction ? 'text-red-500' : 'text-muted-foreground'}`}>{totalReactions}</span>
                           )}
                         </motion.button>
                         
                         <button onClick={() => navigate(`/comments/${post.id}`)} className="flex items-center gap-1.5 pr-3">
-                          <MessageCircle className="h-[22px] w-[22px] text-foreground/70" strokeWidth={1.5} />
+                          <MessageCircle className="h-[21px] w-[21px] text-foreground/60" strokeWidth={1.5} />
                           {post.comments.length > 0 && (
-                            <span className="text-[13px] font-medium text-muted-foreground">{post.comments.length}</span>
+                            <span className="text-[12px] font-medium text-muted-foreground">{post.comments.length}</span>
                           )}
                         </button>
                         
@@ -423,13 +425,13 @@ export default function Feed() {
                           navigator.share?.({ title: 'Publicação', text: post.content?.slice(0, 100), url: `${window.location.origin}/post/${post.id}` })
                             .catch(() => { navigator.clipboard.writeText(`${window.location.origin}/post/${post.id}`); toast.success("Link copiado!"); });
                         }} className="pr-3">
-                          <Send className="h-[20px] w-[20px] text-foreground/70" strokeWidth={1.5} />
+                          <Send className="h-[19px] w-[19px] text-foreground/60" strokeWidth={1.5} />
                         </button>
                         
                         <div className="flex-1" />
                         
                         <motion.button onClick={() => handleSave(post.id)} whileTap={{ scale: 0.8 }}>
-                          <Bookmark className={`h-[22px] w-[22px] transition-colors ${isSaved ? 'fill-foreground text-foreground' : 'text-foreground/70'}`} strokeWidth={1.5} />
+                          <Bookmark className={`h-[21px] w-[21px] transition-colors ${isSaved ? 'fill-foreground text-foreground' : 'text-foreground/60'}`} strokeWidth={1.5} />
                         </motion.button>
                       </div>
                     </article>
@@ -437,9 +439,9 @@ export default function Feed() {
                 );
               })}
 
-              {posts.length > 0 && (
+              {visiblePosts.length > 0 && (
                 <div className="py-10 text-center">
-                  <p className="text-[13px] text-muted-foreground">✓ Estás atualizado</p>
+                  <p className="text-[12px] text-muted-foreground">Estás atualizado</p>
                 </div>
               )}
             </div>
