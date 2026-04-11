@@ -574,33 +574,33 @@ export default function Comments() {
   };
 
   const handleLikeComment = async (commentId: string) => {
-    const findComment = (comments: Comment[]): Comment | undefined => {
-      for (const c of comments) {
+    // Optimistic update - instant UI response
+    const updateCommentLike = (list: Comment[]): Comment[] => list.map(c => {
+      if (c.id === commentId) {
+        const newLiked = !c.user_liked;
+        const currentCount = c.likes[0]?.count || 0;
+        return { ...c, user_liked: newLiked, likes: [{ count: newLiked ? currentCount + 1 : Math.max(0, currentCount - 1) }] };
+      }
+      if (c.replies) return { ...c, replies: updateCommentLike(c.replies) };
+      return c;
+    });
+    
+    setComments(prev => updateCommentLike(prev));
+
+    const findComment = (list: Comment[]): Comment | undefined => {
+      for (const c of list) {
         if (c.id === commentId) return c;
-        if (c.replies) {
-          const found = findComment(c.replies);
-          if (found) return found;
-        }
+        if (c.replies) { const f = findComment(c.replies); if (f) return f; }
       }
     };
-
     const comment = findComment(comments);
     if (!comment) return;
 
     if (comment.user_liked) {
-      await supabase
-        .from("comment_likes")
-        .delete()
-        .eq("comment_id", commentId)
-        .eq("user_id", currentUserId);
+      await supabase.from("comment_likes").delete().eq("comment_id", commentId).eq("user_id", currentUserId);
     } else {
-      await supabase.from("comment_likes").insert({
-        comment_id: commentId,
-        user_id: currentUserId,
-      });
+      await supabase.from("comment_likes").insert({ comment_id: commentId, user_id: currentUserId });
     }
-
-    loadComments();
   };
 
   const handleDeleteComment = async (commentId: string) => {
