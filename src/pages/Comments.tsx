@@ -138,16 +138,18 @@ const AudioPlayer = ({ url }: { url: string }) => {
   );
 };
 
-// Comment Card Component with Threads-style heart likes
+// Comment Card Component with Threads-style heart likes + delete
 const CommentCard = ({ 
   comment, 
   onLike, 
   onReply,
+  onDelete,
   currentUserId 
 }: { 
   comment: Comment; 
   onLike: (id: string) => void;
   onReply: (id: string) => void;
+  onDelete: (id: string) => void;
   currentUserId: string;
 }) => {
   const navigate = useNavigate();
@@ -285,6 +287,15 @@ const CommentCard = ({
           >
             Responder
           </button>
+
+          {comment.user_id === currentUserId && (
+            <button 
+              className="text-xs font-semibold text-destructive/70 hover:text-destructive transition-colors"
+              onClick={() => onDelete(comment.id)}
+            >
+              Eliminar
+            </button>
+          )}
         </div>
 
         {/* Replies */}
@@ -306,6 +317,7 @@ const CommentCard = ({
                     comment={reply} 
                     onLike={onLike} 
                     onReply={onReply}
+                    onDelete={onDelete}
                     currentUserId={currentUserId}
                   />
                 ))}
