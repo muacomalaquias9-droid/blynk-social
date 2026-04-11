@@ -759,6 +759,7 @@ export default function Comments() {
                     comment={comment}
                     onLike={handleLikeComment}
                     onReply={setReplyingTo}
+                    onDelete={handleDeleteComment}
                     currentUserId={currentUserId}
                   />
                 ))
