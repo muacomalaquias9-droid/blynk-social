@@ -138,16 +138,18 @@ const AudioPlayer = ({ url }: { url: string }) => {
   );
 };
 
-// Comment Card Component with Threads-style heart likes
+// Comment Card Component with Threads-style heart likes + delete
 const CommentCard = ({ 
   comment, 
   onLike, 
   onReply,
+  onDelete,
   currentUserId 
 }: { 
   comment: Comment; 
   onLike: (id: string) => void;
   onReply: (id: string) => void;
+  onDelete: (id: string) => void;
   currentUserId: string;
 }) => {
   const navigate = useNavigate();
@@ -285,6 +287,15 @@ const CommentCard = ({
           >
             Responder
           </button>
+
+          {comment.user_id === currentUserId && (
+            <button 
+              className="text-xs font-semibold text-destructive/70 hover:text-destructive transition-colors"
+              onClick={() => onDelete(comment.id)}
+            >
+              Eliminar
+            </button>
+          )}
         </div>
 
         {/* Replies */}
@@ -306,6 +317,7 @@ const CommentCard = ({
                     comment={reply} 
                     onLike={onLike} 
                     onReply={onReply}
+                    onDelete={onDelete}
                     currentUserId={currentUserId}
                   />
                 ))}
@@ -562,33 +574,40 @@ export default function Comments() {
   };
 
   const handleLikeComment = async (commentId: string) => {
-    const findComment = (comments: Comment[]): Comment | undefined => {
-      for (const c of comments) {
+    // Optimistic update - instant UI response
+    const updateCommentLike = (list: Comment[]): Comment[] => list.map(c => {
+      if (c.id === commentId) {
+        const newLiked = !c.user_liked;
+        const currentCount = c.likes[0]?.count || 0;
+        return { ...c, user_liked: newLiked, likes: [{ count: newLiked ? currentCount + 1 : Math.max(0, currentCount - 1) }] };
+      }
+      if (c.replies) return { ...c, replies: updateCommentLike(c.replies) };
+      return c;
+    });
+    
+    setComments(prev => updateCommentLike(prev));
+
+    const findComment = (list: Comment[]): Comment | undefined => {
+      for (const c of list) {
         if (c.id === commentId) return c;
-        if (c.replies) {
-          const found = findComment(c.replies);
-          if (found) return found;
-        }
+        if (c.replies) { const f = findComment(c.replies); if (f) return f; }
       }
     };
-
     const comment = findComment(comments);
     if (!comment) return;
 
     if (comment.user_liked) {
-      await supabase
-        .from("comment_likes")
-        .delete()
-        .eq("comment_id", commentId)
-        .eq("user_id", currentUserId);
+      await supabase.from("comment_likes").delete().eq("comment_id", commentId).eq("user_id", currentUserId);
     } else {
-      await supabase.from("comment_likes").insert({
-        comment_id: commentId,
-        user_id: currentUserId,
-      });
+      await supabase.from("comment_likes").insert({ comment_id: commentId, user_id: currentUserId });
     }
+  };
 
+  const handleDeleteComment = async (commentId: string) => {
+    await supabase.from("comment_likes").delete().eq("comment_id", commentId);
+    await supabase.from("comments").delete().eq("id", commentId).eq("user_id", currentUserId);
     loadComments();
+    toast.success("Comentário eliminado");
   };
 
   const handleImageClick = (images: string[], index: number) => {
@@ -740,6 +759,7 @@ export default function Comments() {
                     comment={comment}
                     onLike={handleLikeComment}
                     onReply={setReplyingTo}
+                    onDelete={handleDeleteComment}
                     currentUserId={currentUserId}
                   />
                 ))
