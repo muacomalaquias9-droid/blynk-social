@@ -603,6 +603,13 @@ export default function Comments() {
     loadComments();
   };
 
+  const handleDeleteComment = async (commentId: string) => {
+    await supabase.from("comment_likes").delete().eq("comment_id", commentId);
+    await supabase.from("comments").delete().eq("id", commentId).eq("user_id", currentUserId);
+    loadComments();
+    toast.success("Comentário eliminado");
+  };
+
   const handleImageClick = (images: string[], index: number) => {
     setGalleryImages(images);
     setGalleryIndex(index);
