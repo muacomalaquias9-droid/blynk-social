@@ -385,21 +385,20 @@ export default function Feed() {
                         </div>
                       )}
 
+                      {/* Music as text overlay on content */}
+                      {post.music_name && (
+                        <div className="px-4 pb-1.5">
+                          <span className="text-[11px] text-primary/80 font-medium flex items-center gap-1.5">
+                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+                            {post.music_name} — {post.music_artist}
+                          </span>
+                        </div>
+                      )}
+
                       {/* Media */}
                       {post.media_urls && post.media_urls.length > 0 && (
                         <div className="relative overflow-hidden mx-4 mb-1">
                           {renderMediaGrid(post.media_urls, post.id)}
-                          {post.music_name && (
-                            <div className="absolute bottom-3 left-3 right-3">
-                              <MusicPlayer musicName={post.music_name} musicArtist={post.music_artist} musicUrl={post.music_url} overlay />
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {post.music_name && (!post.media_urls || post.media_urls.length === 0) && (
-                        <div className="px-4 py-2">
-                          <MusicPlayer musicName={post.music_name} musicArtist={post.music_artist} musicUrl={post.music_url} />
                         </div>
                       )}
 
