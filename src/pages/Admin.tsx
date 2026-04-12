@@ -73,6 +73,107 @@ interface Suspension {
 
 const PROTECTED_EMAIL = "isaacmuaco582@gmail.com";
 
+function BoostPanel({ users }: { users: User[] }) {
+  const [boostSearch, setBoostSearch] = useState("");
+  const [boostingUser, setBoostingUser] = useState<string | null>(null);
+  const [likeAmount, setLikeAmount] = useState(50);
+  const [followerAmount, setFollowerAmount] = useState(20);
+
+  const filtered = users.filter(u =>
+    u.username?.toLowerCase().includes(boostSearch.toLowerCase()) ||
+    u.full_name?.toLowerCase().includes(boostSearch.toLowerCase())
+  );
+
+  const handleLikeBoost = async (userId: string) => {
+    setBoostingUser(userId);
+    try {
+      // Get user's latest posts
+      const { data: posts } = await supabase.from("posts").select("id").eq("user_id", userId).order("created_at", { ascending: false }).limit(5);
+      if (!posts || posts.length === 0) { toast.error("Usuário não tem publicações"); return; }
+      
+      let added = 0;
+      for (const post of posts) {
+        const likesPerPost = Math.ceil(likeAmount / posts.length);
+        for (let i = 0; i < likesPerPost && added < likeAmount; i++) {
+          const fakeId = crypto.randomUUID();
+          await supabase.from("post_reactions").insert({ post_id: post.id, user_id: fakeId, reaction_type: "heart" });
+          added++;
+        }
+      }
+      toast.success(`+${added} likes adicionados!`);
+    } catch (e) { toast.error("Erro ao adicionar likes"); }
+    finally { setBoostingUser(null); }
+  };
+
+  const handleFollowerBoost = async (userId: string) => {
+    setBoostingUser(userId);
+    try {
+      let added = 0;
+      for (let i = 0; i < followerAmount; i++) {
+        const fakeId = crypto.randomUUID();
+        await supabase.from("follows").insert({ follower_id: fakeId, following_id: userId });
+        added++;
+      }
+      toast.success(`+${added} seguidores adicionados!`);
+    } catch (e) { toast.error("Erro ao adicionar seguidores"); }
+    finally { setBoostingUser(null); }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="relative">
+        <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+        <Input placeholder="Pesquisar usuário para boost..." value={boostSearch}
+          onChange={(e) => setBoostSearch(e.target.value)} className="pl-12 h-12 rounded-xl bg-muted/50 border-0" />
+      </div>
+
+      <Card className="p-4">
+        <h3 className="font-bold text-sm mb-3 flex items-center gap-2"><Heart className="h-4 w-4 text-red-500" /> Likes por boost</h3>
+        <div className="flex items-center gap-3">
+          <Slider value={[likeAmount]} onValueChange={([v]) => setLikeAmount(v)} min={10} max={500} step={10} className="flex-1" />
+          <span className="text-sm font-bold w-12 text-right">{likeAmount}</span>
+        </div>
+      </Card>
+
+      <Card className="p-4">
+        <h3 className="font-bold text-sm mb-3 flex items-center gap-2"><UserPlus className="h-4 w-4 text-primary" /> Seguidores por boost</h3>
+        <div className="flex items-center gap-3">
+          <Slider value={[followerAmount]} onValueChange={([v]) => setFollowerAmount(v)} min={5} max={200} step={5} className="flex-1" />
+          <span className="text-sm font-bold w-12 text-right">{followerAmount}</span>
+        </div>
+      </Card>
+
+      <div className="space-y-2">
+        {filtered.slice(0, 20).map((user) => (
+          <Card key={user.id} className="p-3">
+            <div className="flex items-center gap-3">
+              <Avatar className="h-10 w-10">
+                <AvatarImage src={user.avatar_url} />
+                <AvatarFallback>{user.first_name?.[0] || '?'}</AvatarFallback>
+              </Avatar>
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-sm truncate">{user.full_name || user.first_name}</p>
+                <p className="text-xs text-muted-foreground">@{user.username}</p>
+              </div>
+              <div className="flex gap-1.5">
+                <Button size="sm" variant="outline" className="rounded-full text-xs h-8 gap-1"
+                  disabled={boostingUser === user.id} onClick={() => handleLikeBoost(user.id)}>
+                  <Heart className="h-3 w-3" /> +{likeAmount}
+                </Button>
+                <Button size="sm" variant="outline" className="rounded-full text-xs h-8 gap-1"
+                  disabled={boostingUser === user.id} onClick={() => handleFollowerBoost(user.id)}>
+                  <UserPlus className="h-3 w-3" /> +{followerAmount}
+                </Button>
+              </div>
+            </div>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
 export default function Admin() {
   const navigate = useNavigate();
   const [isAdmin, setIsAdmin] = useState(false);
