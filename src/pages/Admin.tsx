@@ -461,10 +461,14 @@ export default function Admin() {
 
           {/* Tabs */}
           <Tabs defaultValue="users" className="w-full px-4">
-            <TabsList className="w-full grid grid-cols-4 mb-4 h-12 bg-muted/50 p-1 rounded-xl">
+            <TabsList className="w-full grid grid-cols-5 mb-4 h-12 bg-muted/50 p-1 rounded-xl">
               <TabsTrigger value="users" className="rounded-lg text-xs data-[state=active]:bg-background">
                 <Users className="h-4 w-4 mr-1" />
                 Usuários
+              </TabsTrigger>
+              <TabsTrigger value="boost" className="rounded-lg text-xs data-[state=active]:bg-background">
+                <Zap className="h-4 w-4 mr-1" />
+                Boost
               </TabsTrigger>
               <TabsTrigger value="reports" className="rounded-lg text-xs data-[state=active]:bg-background relative">
                 <FileWarning className="h-4 w-4 mr-1" />
@@ -481,7 +485,7 @@ export default function Admin() {
               </TabsTrigger>
               <TabsTrigger value="blocked" className="rounded-lg text-xs data-[state=active]:bg-background">
                 <Ban className="h-4 w-4 mr-1" />
-                Bloqueados
+                Bloq.
               </TabsTrigger>
             </TabsList>
 
