@@ -8,21 +8,10 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
-  ArrowLeft, 
-  Users, 
-  FileWarning, 
-  Shield, 
-  Ban, 
-  CheckCircle2, 
-  Search,
-  Trash2,
-  Eye,
-  AlertTriangle,
-  Settings,
-  UserCheck,
-  Clock,
-  Unlock,
-  RefreshCw
+import { 
+  ArrowLeft, Users, FileWarning, Shield, Ban, CheckCircle2, Search,
+  Trash2, Eye, AlertTriangle, UserCheck, Clock, Unlock, RefreshCw,
+  Heart, UserPlus, Zap
 } from "lucide-react";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import VerificationBadge from "@/components/VerificationBadge";
