@@ -589,7 +589,11 @@ export default function Admin() {
               </div>
             </TabsContent>
 
-            <TabsContent value="reports" className="space-y-3 mt-0">
+            {/* Boost Tab */}
+            <TabsContent value="boost" className="space-y-3 mt-0">
+              <BoostPanel users={filteredUsers} />
+            </TabsContent>
+
               {reports.length === 0 ? (
                 <Card className="p-12 text-center">
                   <div className="h-20 w-20 rounded-full bg-green-500/10 flex items-center justify-center mx-auto mb-4">
