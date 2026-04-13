@@ -1,11 +1,11 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 import { MessageNotification } from "@/components/MessageNotification";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { MessageCircle, Share2, Bookmark, Play, Volume2, VolumeX, MoreHorizontal, Heart, Send, Menu } from "lucide-react";
+import { MessageCircle, Share2, Bookmark, Play, Volume2, VolumeX, MoreHorizontal, Heart, Send, Menu, RefreshCw, Loader2 } from "lucide-react";
 import { MusicPlayer, pauseAllAudio } from "@/components/MusicPlayer";
 import { useNavigate } from "react-router-dom";
 import ProtectedRoute from "@/components/ProtectedRoute";
@@ -68,9 +68,45 @@ export default function Feed() {
   const [optionsSheet, setOptionsSheet] = useState<{ open: boolean; post: Post | null }>({ open: false, post: null });
   const [mutedVideos, setMutedVideos] = useState<{ [key: string]: boolean }>({});
   const [likeAnimations, setLikeAnimations] = useState<{ [key: string]: boolean }>({});
+  const [refreshing, setRefreshing] = useState(false);
+  const [pullDistance, setPullDistance] = useState(0);
   const videoRefs = useRef<{ [key: string]: HTMLVideoElement }>({});
   const observerRef = useRef<IntersectionObserver | null>(null);
   const observedVideosRef = useRef<Set<HTMLVideoElement>>(new Set());
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const touchStartY = useRef(0);
+  const isPulling = useRef(false);
+
+  // Pull-to-refresh handlers
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    const container = scrollContainerRef.current;
+    if (container && container.scrollTop <= 0) {
+      touchStartY.current = e.touches[0].clientY;
+      isPulling.current = true;
+    }
+  }, []);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!isPulling.current || refreshing) return;
+    const container = scrollContainerRef.current;
+    if (container && container.scrollTop > 0) { isPulling.current = false; setPullDistance(0); return; }
+    const diff = e.touches[0].clientY - touchStartY.current;
+    if (diff > 0) {
+      setPullDistance(Math.min(diff * 0.5, 80));
+    }
+  }, [refreshing]);
+
+  const handleTouchEnd = useCallback(async () => {
+    if (pullDistance > 50 && !refreshing) {
+      setRefreshing(true);
+      setPullDistance(60);
+      await loadPosts();
+      await new Promise(r => setTimeout(r, 600));
+      setRefreshing(false);
+    }
+    setPullDistance(0);
+    isPulling.current = false;
+  }, [pullDistance, refreshing]);
 
   useEffect(() => {
     const loadData = async () => {
@@ -90,8 +126,13 @@ export default function Feed() {
       setLoading(false);
     };
     loadData();
-    const channel = supabase.channel("posts-changes")
+
+    // Real-time: posts + stories update instantly
+    const channel = supabase.channel("feed-realtime")
       .on("postgres_changes", { event: "*", schema: "public", table: "posts" }, () => loadPosts())
+      .on("postgres_changes", { event: "*", schema: "public", table: "stories" }, () => {
+        // Stories bar updates automatically via its own channel
+      })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, []);
@@ -134,22 +175,35 @@ export default function Feed() {
     if (data) setSponsoredAds(data);
   };
 
+  // Optimistic like
   const handleLike = async (postId: string) => {
     if (!currentUserId) return;
-    const { data: existingReaction } = await supabase.from("post_reactions").select("*")
-      .eq("post_id", postId).eq("user_id", currentUserId).maybeSingle();
-    if (existingReaction) {
-      await supabase.from("post_reactions").delete().eq("id", existingReaction.id);
+    const postIdx = posts.findIndex(p => p.id === postId);
+    if (postIdx === -1) return;
+    const post = posts[postIdx];
+    const existing = post.post_reactions?.find(r => r.user_id === currentUserId);
+
+    // Optimistic update
+    const newPosts = [...posts];
+    if (existing) {
+      newPosts[postIdx] = { ...post, post_reactions: post.post_reactions.filter(r => r.user_id !== currentUserId) };
       playClickSound();
     } else {
       const allowed = await checkLikeLimit();
       if (!allowed) return;
-      await supabase.from("post_reactions").insert({ post_id: postId, user_id: currentUserId, reaction_type: "heart" });
+      newPosts[postIdx] = { ...post, post_reactions: [...(post.post_reactions || []), { user_id: currentUserId, reaction_type: "heart" }] };
       playLikeSound();
       setLikeAnimations(prev => ({ ...prev, [postId]: true }));
       setTimeout(() => setLikeAnimations(prev => ({ ...prev, [postId]: false })), 1000);
     }
-    loadPosts();
+    setPosts(newPosts);
+
+    // DB operation
+    if (existing) {
+      await supabase.from("post_reactions").delete().eq("post_id", postId).eq("user_id", currentUserId);
+    } else {
+      await supabase.from("post_reactions").insert({ post_id: postId, user_id: currentUserId, reaction_type: "heart" });
+    }
   };
 
   const handleDoubleTapLike = async (postId: string) => {
@@ -197,39 +251,50 @@ export default function Feed() {
   const VideoPlayer = ({ url, postId }: { url: string; postId: string }) => {
     const [isPlaying, setIsPlaying] = useState(false);
     const [hasError, setHasError] = useState(false);
+    const [retryCount, setRetryCount] = useState(0);
     const isMuted = mutedVideos[postId] ?? false;
+
+    const handleError = () => {
+      if (retryCount < 2) {
+        setRetryCount(r => r + 1);
+        const video = videoRefs.current[postId];
+        if (video) { video.load(); video.play().catch(() => {}); }
+      } else {
+        setHasError(true);
+      }
+    };
 
     if (hasError) {
       return (
-        <div className="relative bg-muted overflow-hidden aspect-video flex items-center justify-center rounded-2xl">
+        <div className="relative bg-muted/30 overflow-hidden aspect-video flex items-center justify-center rounded-3xl">
           <div className="text-center p-4">
-            <Play className="h-10 w-10 text-muted-foreground mx-auto mb-2" />
-            <p className="text-sm text-muted-foreground">Erro ao carregar vídeo</p>
+            <Play className="h-8 w-8 text-muted-foreground mx-auto mb-2 opacity-50" />
+            <p className="text-xs text-muted-foreground">Não foi possível carregar</p>
           </div>
         </div>
       );
     }
 
     return (
-      <div className="relative bg-black overflow-hidden rounded-2xl" onClick={() => {
+      <div className="relative bg-black/5 dark:bg-white/5 overflow-hidden rounded-3xl" onClick={() => {
         const video = videoRefs.current[postId];
         if (video) { if (video.paused) { pauseAllAudio(); video.play(); } else { video.pause(); } }
       }}>
-        <video ref={registerVideoRef(postId)} className="w-full max-h-[500px] object-contain cursor-pointer"
-          playsInline muted={isMuted} loop preload="metadata"
-          onPlay={() => setIsPlaying(true)} onPause={() => setIsPlaying(false)} onError={() => setHasError(true)}>
+        <video ref={registerVideoRef(postId)} className="w-full max-h-[520px] object-contain cursor-pointer"
+          playsInline muted={isMuted} loop preload="auto"
+          onPlay={() => setIsPlaying(true)} onPause={() => setIsPlaying(false)} onError={handleError}>
           <source src={url} type="video/mp4" />
         </video>
         {!isPlaying && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none bg-black/20">
-            <div className="h-14 w-14 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
-              <Play className="h-7 w-7 text-foreground fill-foreground ml-0.5" />
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="h-16 w-16 rounded-full bg-background/80 backdrop-blur-xl flex items-center justify-center shadow-2xl border border-border/20">
+              <Play className="h-7 w-7 text-foreground fill-foreground ml-1" />
             </div>
           </div>
         )}
-        <button className="absolute bottom-3 right-3 h-8 w-8 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center border border-white/10"
+        <button className="absolute bottom-3 right-3 h-9 w-9 rounded-full bg-background/60 backdrop-blur-xl flex items-center justify-center border border-border/20"
           onClick={(e) => { e.stopPropagation(); toggleVideoMute(postId); }}>
-          {isMuted ? <VolumeX className="h-3.5 w-3.5 text-white" /> : <Volume2 className="h-3.5 w-3.5 text-white" />}
+          {isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
         </button>
       </div>
     );
@@ -242,7 +307,7 @@ export default function Feed() {
       return (
         <div className="relative" onDoubleClick={() => handleDoubleTapLike(postId)}>
           {isVideo(url) ? <VideoPlayer url={url} postId={postId} /> : (
-            <img src={url} alt="Post" className="w-full object-cover rounded-2xl cursor-pointer" onClick={() => setGalleryImages(mediaUrls)} />
+            <img src={url} alt="Post" className="w-full object-cover rounded-3xl cursor-pointer" loading="lazy" onClick={() => setGalleryImages(mediaUrls)} />
           )}
           <AnimatePresence>
             {likeAnimations[postId] && (
@@ -256,23 +321,23 @@ export default function Feed() {
       );
     }
     return (
-      <div className={`grid gap-1 rounded-2xl overflow-hidden ${mediaUrls.length === 2 ? 'grid-cols-2' : 'grid-cols-2'}`} onDoubleClick={() => handleDoubleTapLike(postId)}>
+      <div className={`grid gap-1.5 rounded-3xl overflow-hidden ${mediaUrls.length === 2 ? 'grid-cols-2' : 'grid-cols-2'}`} onDoubleClick={() => handleDoubleTapLike(postId)}>
         {mediaUrls.slice(0, 4).map((url, idx) => (
           <div key={idx} className={`relative cursor-pointer ${mediaUrls.length === 3 && idx === 0 ? 'row-span-2' : ''}`}
             onClick={() => { if (!isVideo(url)) { setGalleryImages(mediaUrls.filter(u => !isVideo(u))); setGalleryIndex(idx); } }}>
             {isVideo(url) ? (
-              <div className="relative aspect-square bg-black">
+              <div className="relative aspect-square bg-black/5 dark:bg-white/5">
                 <video src={url} className="w-full h-full object-cover" playsInline muted preload="metadata"
                   onClick={(e) => { e.stopPropagation(); pauseAllAudio(); const vid = e.currentTarget; if (vid.paused) vid.play(); else vid.pause(); }} />
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <Play className="h-10 w-10 text-white/80 fill-white/80" />
+                  <Play className="h-8 w-8 text-white/80 fill-white/80" />
                 </div>
               </div>
             ) : (
-              <img src={url} alt="" className="w-full aspect-square object-cover" />
+              <img src={url} alt="" className="w-full aspect-square object-cover" loading="lazy" />
             )}
             {idx === 3 && mediaUrls.length > 4 && (
-              <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+              <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
                 <span className="text-white text-xl font-bold">+{mediaUrls.length - 4}</span>
               </div>
             )}
@@ -282,7 +347,6 @@ export default function Feed() {
     );
   };
 
-  // Filter out blocked users
   const visiblePosts = posts.filter(post => !blockedUserIds.includes(post.user_id));
 
   if (loading) {
@@ -298,40 +362,55 @@ export default function Feed() {
     <ProtectedRoute>
       <MessageNotification />
       <div className="min-h-screen bg-background">
-        {/* Header */}
+        {/* Header - Floating glass */}
         <header className="fixed top-0 left-0 right-0 z-50 safe-area-top"
           style={{
-            background: 'hsl(var(--card) / 0.65)',
-            backdropFilter: 'blur(40px) saturate(180%)',
-            WebkitBackdropFilter: 'blur(40px) saturate(180%)',
-            borderBottom: '0.5px solid hsl(var(--border) / 0.15)',
+            background: 'hsl(var(--background) / 0.72)',
+            backdropFilter: 'blur(48px) saturate(200%)',
+            WebkitBackdropFilter: 'blur(48px) saturate(200%)',
+            borderBottom: '0.5px solid hsl(var(--border) / 0.08)',
           }}
         >
-          <div className="flex items-center justify-between h-11 px-4 max-w-lg mx-auto">
-            <div className="flex items-center gap-2">
-              <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full active:scale-90 transition-transform" onClick={() => navigate("/sidebar")}>
-                <Menu className="h-[20px] w-[20px]" strokeWidth={1.5} />
+          <div className="flex items-center justify-between h-12 px-4 max-w-lg mx-auto">
+            <div className="flex items-center gap-2.5">
+              <Button variant="ghost" size="icon" className="h-9 w-9 rounded-2xl active:scale-90 transition-transform" onClick={() => navigate("/sidebar")}>
+                <Menu className="h-5 w-5" strokeWidth={1.5} />
               </Button>
               <Logo2026 size="sm" />
             </div>
-            <div className="flex items-center gap-0.5">
-              <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full active:scale-90 transition-transform" onClick={() => navigate("/notifications")}>
-                <Heart className="h-[20px] w-[20px]" strokeWidth={1.5} />
+            <div className="flex items-center gap-1">
+              <Button variant="ghost" size="icon" className="h-9 w-9 rounded-2xl active:scale-90 transition-transform" onClick={() => navigate("/notifications")}>
+                <Heart className="h-5 w-5" strokeWidth={1.5} />
               </Button>
-              <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full active:scale-90 transition-transform" onClick={() => navigate("/messages")}>
-                <Send className="h-[20px] w-[20px]" strokeWidth={1.5} />
+              <Button variant="ghost" size="icon" className="h-9 w-9 rounded-2xl active:scale-90 transition-transform" onClick={() => navigate("/messages")}>
+                <Send className="h-5 w-5" strokeWidth={1.5} />
               </Button>
             </div>
           </div>
         </header>
 
-        <div className="pt-11 pb-[72px] h-screen overflow-y-auto native-scroll">
+        {/* Pull-to-refresh indicator */}
+        <div className="fixed top-12 left-0 right-0 z-40 flex justify-center pointer-events-none"
+          style={{ transform: `translateY(${Math.max(pullDistance - 20, 0)}px)`, opacity: pullDistance > 10 ? 1 : 0, transition: refreshing ? 'none' : 'all 0.2s ease-out' }}>
+          <div className={`h-10 w-10 rounded-full bg-background shadow-lg border border-border/30 flex items-center justify-center ${refreshing ? 'animate-spin' : ''}`}>
+            {refreshing ? <Loader2 className="h-5 w-5 text-primary" /> : <RefreshCw className={`h-4 w-4 text-muted-foreground transition-transform`} style={{ transform: `rotate(${pullDistance * 3}deg)` }} />}
+          </div>
+        </div>
+
+        <div ref={scrollContainerRef}
+          className="pt-12 pb-[72px] h-screen overflow-y-auto native-scroll"
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          style={{ transform: refreshing ? 'translateY(40px)' : `translateY(${pullDistance > 0 ? pullDistance * 0.3 : 0}px)`, transition: refreshing || pullDistance > 0 ? 'transform 0.3s ease-out' : 'none' }}
+        >
           <div className="max-w-lg mx-auto">
             <StoriesBar onCreateStory={() => setCreateStoryOpen(true)} />
+
             <div className="px-3 my-2"><UserSuggestions /></div>
 
-            {/* Posts Feed */}
-            <div className="space-y-0">
+            {/* Posts Feed - New unique card design */}
+            <div className="space-y-3 px-3 pb-4">
               {visiblePosts.map((post, index) => {
                 const userReaction = getUserReaction(post);
                 const totalReactions = post.post_reactions?.length || 0;
@@ -340,107 +419,124 @@ export default function Feed() {
                 const adIndex = Math.floor(index / 5) % sponsoredAds.length;
 
                 return (
-                  <div key={post.id}>
-                    {showAd && <SponsoredAd ad={sponsoredAds[adIndex]} likesCount={0} isLiked={false} userId={currentUserId} />}
+                  <motion.div key={post.id}
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.3, delay: index * 0.03 }}
+                  >
+                    {showAd && <div className="mb-3"><SponsoredAd ad={sponsoredAds[adIndex]} likesCount={0} isLiked={false} userId={currentUserId} /></div>}
                     
-                    <article className="border-b border-border/10 pb-1">
-                      {/* Header */}
-                      <div className="flex items-center gap-3 px-4 py-2.5">
-                        <Avatar className="h-9 w-9 cursor-pointer" onClick={() => navigate(`/profile/${post.profiles.id}`)}>
-                          <AvatarImage src={post.profiles.avatar_url} className="object-cover" />
-                          <AvatarFallback className="bg-muted text-xs font-semibold">
-                            {post.profiles.first_name?.[0] || post.profiles.username?.[0]}
-                          </AvatarFallback>
-                        </Avatar>
+                    {/* Card with subtle glass effect */}
+                    <article className="rounded-[28px] overflow-hidden"
+                      style={{
+                        background: 'hsl(var(--card) / 0.5)',
+                        backdropFilter: 'blur(20px)',
+                        WebkitBackdropFilter: 'blur(20px)',
+                        border: '1px solid hsl(var(--border) / 0.08)',
+                        boxShadow: '0 2px 16px hsl(var(--foreground) / 0.03)',
+                      }}
+                    >
+                      {/* User Header */}
+                      <div className="flex items-center gap-3 px-4 py-3">
+                        <div className="relative">
+                          <Avatar className="h-10 w-10 cursor-pointer ring-2 ring-border/10" onClick={() => navigate(`/profile/${post.profiles.id}`)}>
+                            <AvatarImage src={post.profiles.avatar_url} className="object-cover" />
+                            <AvatarFallback className="bg-muted text-sm font-semibold">
+                              {post.profiles.first_name?.[0] || post.profiles.username?.[0]}
+                            </AvatarFallback>
+                          </Avatar>
+                        </div>
                         
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5 cursor-pointer" onClick={() => navigate(`/profile/${post.profiles.id}`)}>
-                            <span className="font-semibold text-[13px]">{post.profiles.username}</span>
+                            <span className="font-semibold text-[14px] leading-tight">{post.profiles.first_name || post.profiles.username}</span>
                             {(post.profiles.verified || hasSpecialBadgeEmoji(post.profiles.username) || hasSpecialBadgeEmoji(post.profiles.full_name)) && (
                               <VerificationBadge verified={post.profiles.verified} badgeType={post.profiles.badge_type} username={post.profiles.username} fullName={post.profiles.full_name} className="w-3.5 h-3.5" />
                             )}
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-muted-foreground text-[11px]">@{post.profiles.username}</span>
+                            <span className="text-muted-foreground/40 text-[11px]">·</span>
                             <span className="text-muted-foreground text-[11px]">
-                              · {formatDistanceToNow(new Date(post.created_at), { locale: ptBR, addSuffix: false })}
+                              {formatDistanceToNow(new Date(post.created_at), { locale: ptBR, addSuffix: false })}
                             </span>
                           </div>
-                          {post.music_name && (
-                            <span className="text-[10px] text-muted-foreground truncate flex items-center gap-1">
-                              <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
-                              {post.music_artist}
-                            </span>
-                          )}
                         </div>
                         
-                        <Button variant="ghost" size="icon" className="h-8 w-8 -mr-1 rounded-full" onClick={() => setOptionsSheet({ open: true, post })}>
-                          <MoreHorizontal className="h-5 w-5" />
+                        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-2xl" onClick={() => setOptionsSheet({ open: true, post })}>
+                          <MoreHorizontal className="h-5 w-5 text-muted-foreground" />
                         </Button>
                       </div>
 
-                      {/* Content */}
+                      {/* Text Content */}
                       {post.content && (
-                        <div className="px-4 pb-2">
-                          <p className="text-[14px] leading-[20px]">
+                        <div className="px-4 pb-2.5">
+                          <p className="text-[14px] leading-[22px] text-foreground/90">
                             {parseTextWithLinksAndMentions(post.content)}
                           </p>
                         </div>
                       )}
 
-                      {/* Music as text overlay on content */}
+                      {/* Music tag - minimal */}
                       {post.music_name && (
-                        <div className="px-4 pb-1.5">
-                          <span className="text-[11px] text-primary/80 font-medium flex items-center gap-1.5">
+                        <div className="px-4 pb-2">
+                          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/8 dark:bg-primary/12">
                             <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
-                            {post.music_name} — {post.music_artist}
-                          </span>
+                            <span className="text-[11px] text-primary font-medium truncate max-w-[200px]">
+                              {post.music_name} — {post.music_artist}
+                            </span>
+                          </div>
                         </div>
                       )}
 
                       {/* Media */}
                       {post.media_urls && post.media_urls.length > 0 && (
-                        <div className="relative overflow-hidden mx-4 mb-1">
+                        <div className="px-3 pb-2">
                           {renderMediaGrid(post.media_urls, post.id)}
                         </div>
                       )}
 
-                      {/* Actions */}
-                      <div className="flex items-center gap-1 px-4 py-2">
+                      {/* Interaction bar */}
+                      <div className="flex items-center px-4 py-2.5 gap-0.5">
                         <motion.button onClick={() => handleLike(post.id)} whileTap={{ scale: 0.8 }}
                           transition={{ type: "spring", stiffness: 400, damping: 17 }}
-                          className="flex items-center gap-1.5 pr-3">
-                          <Heart className={`h-[21px] w-[21px] transition-colors ${userReaction ? 'text-red-500 fill-red-500' : 'text-foreground/60'}`} strokeWidth={1.5} />
+                          className="flex items-center gap-1.5 h-9 px-3 rounded-2xl hover:bg-muted/50 active:bg-muted transition-colors">
+                          <Heart className={`h-[20px] w-[20px] transition-all duration-200 ${userReaction ? 'text-red-500 fill-red-500 scale-110' : 'text-muted-foreground'}`} strokeWidth={1.5} />
                           {totalReactions > 0 && (
-                            <span className={`text-[12px] font-medium ${userReaction ? 'text-red-500' : 'text-muted-foreground'}`}>{totalReactions}</span>
+                            <span className={`text-[13px] font-medium tabular-nums ${userReaction ? 'text-red-500' : 'text-muted-foreground'}`}>{totalReactions}</span>
                           )}
                         </motion.button>
                         
-                        <button onClick={() => navigate(`/comments/${post.id}`)} className="flex items-center gap-1.5 pr-3">
-                          <MessageCircle className="h-[21px] w-[21px] text-foreground/60" strokeWidth={1.5} />
+                        <button onClick={() => navigate(`/comments/${post.id}`)}
+                          className="flex items-center gap-1.5 h-9 px-3 rounded-2xl hover:bg-muted/50 active:bg-muted transition-colors">
+                          <MessageCircle className="h-[20px] w-[20px] text-muted-foreground" strokeWidth={1.5} />
                           {post.comments.length > 0 && (
-                            <span className="text-[12px] font-medium text-muted-foreground">{post.comments.length}</span>
+                            <span className="text-[13px] font-medium text-muted-foreground tabular-nums">{post.comments.length}</span>
                           )}
                         </button>
                         
                         <button onClick={() => {
                           navigator.share?.({ title: 'Publicação', text: post.content?.slice(0, 100), url: `${window.location.origin}/post/${post.id}` })
                             .catch(() => { navigator.clipboard.writeText(`${window.location.origin}/post/${post.id}`); toast.success("Link copiado!"); });
-                        }} className="pr-3">
-                          <Send className="h-[19px] w-[19px] text-foreground/60" strokeWidth={1.5} />
+                        }} className="h-9 px-3 rounded-2xl hover:bg-muted/50 active:bg-muted transition-colors">
+                          <Send className="h-[18px] w-[18px] text-muted-foreground" strokeWidth={1.5} />
                         </button>
                         
                         <div className="flex-1" />
                         
-                        <motion.button onClick={() => handleSave(post.id)} whileTap={{ scale: 0.8 }}>
-                          <Bookmark className={`h-[21px] w-[21px] transition-colors ${isSaved ? 'fill-foreground text-foreground' : 'text-foreground/60'}`} strokeWidth={1.5} />
+                        <motion.button onClick={() => handleSave(post.id)} whileTap={{ scale: 0.8 }}
+                          className="h-9 px-3 rounded-2xl hover:bg-muted/50 active:bg-muted transition-colors">
+                          <Bookmark className={`h-[20px] w-[20px] transition-all duration-200 ${isSaved ? 'fill-foreground text-foreground' : 'text-muted-foreground'}`} strokeWidth={1.5} />
                         </motion.button>
                       </div>
                     </article>
-                  </div>
+                  </motion.div>
                 );
               })}
 
               {visiblePosts.length > 0 && (
-                <div className="py-10 text-center">
-                  <p className="text-[12px] text-muted-foreground">Estás atualizado</p>
+                <div className="py-8 text-center">
+                  <p className="text-[12px] text-muted-foreground/60">Estás atualizado ✓</p>
                 </div>
               )}
             </div>
