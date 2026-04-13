@@ -481,7 +481,7 @@ export default function Profile() {
             <div className="grid grid-cols-4 gap-2 mb-2">
               {[
                 { icon: Plus, label: "Criar", onClick: () => navigate('/create') },
-                { icon: Briefcase, label: "Profissional", onClick: () => navigate('/professional') },
+                { icon: Briefcase, label: "Profissional", onClick: () => navigate('/professional-panel') },
                 { icon: TrendingUp, label: "Monetização", onClick: () => navigate('/monetization') },
                 { icon: Award, label: "Verificação", onClick: () => navigate('/request-verification') },
               ].map((item, i) => (
