@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Phone, PhoneOff, Mic, MicOff, Video, VideoOff, Volume2 } from 'lucide-react';
+import { PhoneOff, Mic, MicOff, Video, VideoOff, Volume2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { supabase } from '@/integrations/supabase/client';
@@ -25,8 +25,10 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const channelRef = useRef<any>(null);
+  const connectSoundRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
+    connectSoundRef.current = new Audio('/sounds/connect.mp3');
     loadCallData();
     initCall();
     return () => cleanup();
@@ -51,24 +53,17 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
 
   const initCall = async () => {
     try {
-      console.log('Iniciando chamada WebRTC...', { callId, isVideo });
-
       const { data: callRow, error: callErr } = await supabase
         .from('calls')
         .select('caller_id, receiver_id, status')
         .eq('id', callId)
         .single();
 
-      if (callErr || !callRow) {
-        console.error('Erro ao carregar chamada:', callErr);
-        onEnd();
-        return;
-      }
+      if (callErr || !callRow) { onEnd(); return; }
 
       const isCaller = callRow.caller_id === user?.id;
-      console.log('Call role:', isCaller ? 'caller' : 'receiver');
 
-      // Get user media - CRITICAL for real voice
+      // Get user media with echo cancellation
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -76,7 +71,7 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
           autoGainControl: true,
           sampleRate: 48000,
         },
-        video: isVideo,
+        video: isVideo ? { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } } : false,
       });
 
       localStreamRef.current = stream;
@@ -96,86 +91,85 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
         iceCandidatePoolSize: 10,
       };
 
-      const peerConnection = new RTCPeerConnection(configuration);
-      peerConnectionRef.current = peerConnection;
+      const pc = new RTCPeerConnection(configuration);
+      peerConnectionRef.current = pc;
 
-      // Add local tracks to connection
+      // Add local tracks - IMPORTANT: only add tracks once
       stream.getTracks().forEach(track => {
-        console.log('Adding track:', track.kind);
-        peerConnection.addTrack(track, stream);
+        pc.addTrack(track, stream);
       });
 
-      // Handle remote stream - CRITICAL for hearing other user
-      peerConnection.ontrack = (event) => {
-        console.log('Received remote track:', event.track.kind);
+      // Handle remote stream - route to separate audio/video elements
+      pc.ontrack = (event) => {
+        const remoteStream = event.streams[0];
+        if (!remoteStream) return;
 
         if (event.track.kind === 'audio') {
-          // For audio calls, use audio element
+          // Route remote audio to audio element (NOT back to local user)
           if (remoteAudioRef.current) {
-            remoteAudioRef.current.srcObject = event.streams[0];
+            remoteAudioRef.current.srcObject = remoteStream;
+            remoteAudioRef.current.volume = 1.0;
             remoteAudioRef.current.play().catch(console.error);
           }
         }
 
-        if (remoteVideoRef.current && event.streams[0]) {
-          remoteVideoRef.current.srcObject = event.streams[0];
+        if (event.track.kind === 'video' && remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject = remoteStream;
         }
       };
 
-      // Signaling channel via Supabase Realtime
+      // Signaling channel
       const channel = supabase
         .channel(`call-${callId}`)
         .on('broadcast', { event: 'signal' }, async ({ payload }) => {
-          if (payload?.from && payload.from === user?.id) return;
-
-          console.log('Signal received:', payload.type);
+          // Skip our own signals
+          if (payload?.from === user?.id) return;
 
           try {
             if (payload.type === 'offer' && !isCaller) {
-              await peerConnection.setRemoteDescription(new RTCSessionDescription(payload.offer));
-              const answer = await peerConnection.createAnswer();
-              await peerConnection.setLocalDescription(answer);
-
+              await pc.setRemoteDescription(new RTCSessionDescription(payload.offer));
+              const answer = await pc.createAnswer();
+              await pc.setLocalDescription(answer);
               channel.send({
                 type: 'broadcast',
                 event: 'signal',
                 payload: { type: 'answer', answer, from: user?.id },
               });
             } else if (payload.type === 'answer' && isCaller) {
-              await peerConnection.setRemoteDescription(new RTCSessionDescription(payload.answer));
+              await pc.setRemoteDescription(new RTCSessionDescription(payload.answer));
             } else if (payload.type === 'ice-candidate' && payload.candidate) {
-              await peerConnection.addIceCandidate(new RTCIceCandidate(payload.candidate));
+              await pc.addIceCandidate(new RTCIceCandidate(payload.candidate));
+            } else if (payload.type === 'end-call') {
+              cleanup();
+              onEnd();
             }
           } catch (err) {
-            console.error('Signal handling error:', err);
+            console.error('Signal error:', err);
           }
         })
         .subscribe(async (status) => {
-          console.log('Channel status:', status);
-          if (status === 'SUBSCRIBED') {
-            // Only caller creates the offer (avoids glare)
-            if (isCaller) {
-              const offer = await peerConnection.createOffer({
+          if (status === 'SUBSCRIBED' && isCaller) {
+            // Small delay to let receiver subscribe
+            setTimeout(async () => {
+              const offer = await pc.createOffer({
                 offerToReceiveAudio: true,
                 offerToReceiveVideo: isVideo,
               });
-              await peerConnection.setLocalDescription(offer);
-
+              await pc.setLocalDescription(offer);
               channel.send({
                 type: 'broadcast',
                 event: 'signal',
                 payload: { type: 'offer', offer, from: user?.id },
               });
-            }
+            }, 1000);
           }
         });
 
       channelRef.current = channel;
 
-      // Handle ICE candidates (after channel is ready)
-      peerConnection.onicecandidate = (event) => {
+      // ICE candidates
+      pc.onicecandidate = (event) => {
         if (event.candidate && channelRef.current) {
-          console.log('Sending ICE candidate');
           channelRef.current.send({
             type: 'broadcast',
             event: 'signal',
@@ -184,15 +178,16 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
         }
       };
 
-      peerConnection.onconnectionstatechange = () => {
-        console.log('Connection state:', peerConnection.connectionState);
-        if (peerConnection.connectionState === 'connected') {
+      pc.onconnectionstatechange = () => {
+        if (pc.connectionState === 'connected') {
           setIsConnected(true);
+          connectSoundRef.current?.play().catch(() => {});
+        } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+          // Try to reconnect or end
+          if (pc.connectionState === 'failed') {
+            endCall();
+          }
         }
-      };
-
-      peerConnection.oniceconnectionstatechange = () => {
-        console.log('ICE connection state:', peerConnection.iceConnectionState);
       };
 
       await supabase.from('calls').update({ status: 'ongoing' }).eq('id', callId);
@@ -226,17 +221,33 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
   };
 
   const endCall = async () => {
+    // Notify remote user
+    channelRef.current?.send({
+      type: 'broadcast',
+      event: 'signal',
+      payload: { type: 'end-call', from: user?.id },
+    });
+    
+    const hangupSound = new Audio('/sounds/hangup.mp3');
+    hangupSound.play().catch(() => {});
+    
     await supabase.from('calls').update({ status: 'ended', ended_at: new Date().toISOString() }).eq('id', callId);
     cleanup();
     onEnd();
   };
 
-  const formatDuration = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
+  const formatDuration = (s: number) => {
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
+    return `${m}:${sec.toString().padStart(2, '0')}`;
+  };
 
   return (
     <div className="fixed inset-0 z-50 bg-gradient-to-b from-gray-900 to-black flex flex-col">
-      {/* Hidden audio element for voice calls */}
-      <audio ref={remoteAudioRef} autoPlay playsInline />
+      {/* Hidden audio element for remote voice - CRITICAL: autoPlay + playsInline */}
+      <audio ref={remoteAudioRef} autoPlay playsInline style={{ display: 'none' }} />
       
       <div className="flex-1 relative flex items-center justify-center">
         {isVideo ? (
@@ -247,6 +258,7 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
               animate={{ scale: 1, opacity: 1 }}
               className="absolute bottom-24 right-4 w-32 h-44 rounded-2xl overflow-hidden border-2 border-white/20 shadow-2xl"
             >
+              {/* Local video is muted so we don't hear our own voice */}
               <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" style={{ transform: 'scaleX(-1)' }} />
             </motion.div>
           </>
@@ -280,6 +292,15 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
           </motion.div>
         )}
       </div>
+
+      {/* Call duration overlay for video calls */}
+      {isVideo && isConnected && (
+        <div className="absolute top-12 left-0 right-0 flex justify-center">
+          <div className="px-4 py-1.5 rounded-full bg-black/50 backdrop-blur-sm">
+            <span className="text-white text-sm font-medium">{formatDuration(callDuration)}</span>
+          </div>
+        </div>
+      )}
 
       {/* Controls */}
       <div className="p-8 flex justify-center gap-6 safe-area-bottom">
