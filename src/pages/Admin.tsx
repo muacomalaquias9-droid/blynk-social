@@ -87,35 +87,24 @@ function BoostPanel({ users }: { users: User[] }) {
   const handleLikeBoost = async (userId: string) => {
     setBoostingUser(userId);
     try {
-      // Get user's latest posts
-      const { data: posts } = await supabase.from("posts").select("id").eq("user_id", userId).order("created_at", { ascending: false }).limit(5);
-      if (!posts || posts.length === 0) { toast.error("Usuário não tem publicações"); return; }
-      
-      let added = 0;
-      for (const post of posts) {
-        const likesPerPost = Math.ceil(likeAmount / posts.length);
-        for (let i = 0; i < likesPerPost && added < likeAmount; i++) {
-          const fakeId = crypto.randomUUID();
-          await supabase.from("post_reactions").insert({ post_id: post.id, user_id: fakeId, reaction_type: "heart" });
-          added++;
-        }
-      }
-      toast.success(`+${added} likes adicionados!`);
-    } catch (e) { toast.error("Erro ao adicionar likes"); }
+      const { data, error } = await supabase.functions.invoke("admin-boost", {
+        body: { type: "likes", targetUserId: userId, amount: likeAmount },
+      });
+      if (error) throw error;
+      toast.success(`+${data.added} likes adicionados!`);
+    } catch (e: any) { toast.error(e.message || "Erro ao adicionar likes"); }
     finally { setBoostingUser(null); }
   };
 
   const handleFollowerBoost = async (userId: string) => {
     setBoostingUser(userId);
     try {
-      let added = 0;
-      for (let i = 0; i < followerAmount; i++) {
-        const fakeId = crypto.randomUUID();
-        await supabase.from("follows").insert({ follower_id: fakeId, following_id: userId });
-        added++;
-      }
-      toast.success(`+${added} seguidores adicionados!`);
-    } catch (e) { toast.error("Erro ao adicionar seguidores"); }
+      const { data, error } = await supabase.functions.invoke("admin-boost", {
+        body: { type: "followers", targetUserId: userId, amount: followerAmount },
+      });
+      if (error) throw error;
+      toast.success(`+${data.added} seguidores adicionados!`);
+    } catch (e: any) { toast.error(e.message || "Erro ao adicionar seguidores"); }
     finally { setBoostingUser(null); }
   };
 
