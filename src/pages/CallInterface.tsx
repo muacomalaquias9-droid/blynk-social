@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { PhoneOff, Mic, MicOff, Video, VideoOff, Phone } from 'lucide-react';
 import { toast } from 'sonner';
 import CallInterfaceComponent from '@/components/call/CallInterface';
+import { startCallingSound, stopCallingSound, playConnectSound, playHangupSound } from '@/utils/callSounds';
 
 export default function CallInterface() {
   const { userId } = useParams();
@@ -21,9 +22,7 @@ export default function CallInterface() {
   const [callStatus, setCallStatus] = useState<'calling' | 'ringing' | 'connected' | 'ended'>('calling');
   const [callDuration, setCallDuration] = useState(0);
   const [showCallInterface, setShowCallInterface] = useState(false);
-  const [callingSound] = useState(() => new Audio('/sounds/calling.mp3'));
-  const [connectSound] = useState(() => new Audio('/sounds/connect.mp3'));
-  const [hangupSound] = useState(() => new Audio('/sounds/hangup.mp3'));
+  // Sounds are now generated programmatically via callSounds utility
 
   useEffect(() => {
     if (userId && user) {

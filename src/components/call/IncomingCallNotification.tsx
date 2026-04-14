@@ -6,13 +6,14 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Phone, PhoneOff, Video } from 'lucide-react';
 import { toast } from 'sonner';
+import { startRingingSound, stopRingingSound } from '@/utils/callSounds';
 
 export default function IncomingCallNotification() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [incomingCall, setIncomingCall] = useState<any>(null);
   const [caller, setCaller] = useState<any>(null);
-  const [ringingSound] = useState(() => new Audio('/sounds/ringing.mp3'));
+  // Sounds are now generated programmatically
 
   useEffect(() => {
     if (!user) return;
