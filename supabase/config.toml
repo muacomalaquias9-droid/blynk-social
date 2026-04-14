@@ -23,3 +23,6 @@ verify_jwt = false
 
 [functions.process-payout]
 verify_jwt = false
+
+[functions.admin-boost]
+verify_jwt = false
