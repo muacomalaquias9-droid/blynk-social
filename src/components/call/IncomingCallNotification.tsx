@@ -71,8 +71,7 @@ export default function IncomingCallNotification() {
   const rejectCall = async () => {
     if (!incomingCall) return;
 
-    ringingSound.pause();
-    ringingSound.currentTime = 0;
+    stopRingingSound();
 
     await supabase
       .from('calls')
