@@ -44,7 +44,9 @@ export default function Monetization() {
 
     const withdrawData = withdrawRes.data || [];
     setWithdrawals(withdrawData);
-    const approved = withdrawData.filter((w: any) => w.status === "approved").reduce((sum: number, w: any) => sum + w.amount, 0);
+    // Only count withdrawals where the actual bank transfer was confirmed (payout_status = 'completed')
+    const completedWithdrawals = withdrawData.filter((w: any) => w.payout_status === 'completed');
+    const approved = completedWithdrawals.reduce((sum: number, w: any) => sum + w.amount, 0);
     setWithdrawnTotal(approved);
   };
 
