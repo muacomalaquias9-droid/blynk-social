@@ -6,13 +6,14 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Phone, PhoneOff, Video } from 'lucide-react';
 import { toast } from 'sonner';
+import { startRingingSound, stopRingingSound } from '@/utils/callSounds';
 
 export default function IncomingCallNotification() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [incomingCall, setIncomingCall] = useState<any>(null);
   const [caller, setCaller] = useState<any>(null);
-  const [ringingSound] = useState(() => new Audio('/sounds/ringing.mp3'));
+  // Sounds are now generated programmatically
 
   useEffect(() => {
     if (!user) return;
@@ -41,8 +42,7 @@ export default function IncomingCallNotification() {
             setCaller(callerData);
             
             // Play ringing sound
-            ringingSound.loop = true;
-            ringingSound.play().catch(console.error);
+            startRingingSound();
           }
         }
       )
@@ -50,17 +50,14 @@ export default function IncomingCallNotification() {
 
     return () => {
       supabase.removeChannel(channel);
-      ringingSound.pause();
-      ringingSound.currentTime = 0;
+      stopRingingSound();
     };
   }, [user]);
 
   const acceptCall = async () => {
     if (!incomingCall) return;
 
-    ringingSound.pause();
-    ringingSound.currentTime = 0;
-
+    stopRingingSound();
     await supabase
       .from('calls')
       .update({ status: 'accepted' })
@@ -74,8 +71,7 @@ export default function IncomingCallNotification() {
   const rejectCall = async () => {
     if (!incomingCall) return;
 
-    ringingSound.pause();
-    ringingSound.currentTime = 0;
+    stopRingingSound();
 
     await supabase
       .from('calls')

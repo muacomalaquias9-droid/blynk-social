@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { PhoneOff, Mic, MicOff, Video, VideoOff, Phone } from 'lucide-react';
 import { toast } from 'sonner';
 import CallInterfaceComponent from '@/components/call/CallInterface';
+import { startCallingSound, stopCallingSound, playConnectSound, playHangupSound } from '@/utils/callSounds';
 
 export default function CallInterface() {
   const { userId } = useParams();
@@ -21,9 +22,7 @@ export default function CallInterface() {
   const [callStatus, setCallStatus] = useState<'calling' | 'ringing' | 'connected' | 'ended'>('calling');
   const [callDuration, setCallDuration] = useState(0);
   const [showCallInterface, setShowCallInterface] = useState(false);
-  const [callingSound] = useState(() => new Audio('/sounds/calling.mp3'));
-  const [connectSound] = useState(() => new Audio('/sounds/connect.mp3'));
-  const [hangupSound] = useState(() => new Audio('/sounds/hangup.mp3'));
+  // Sounds are now generated programmatically via callSounds utility
 
   useEffect(() => {
     if (userId && user) {
@@ -32,8 +31,7 @@ export default function CallInterface() {
     }
     
     return () => {
-      callingSound.pause();
-      callingSound.currentTime = 0;
+      stopCallingSound();
     };
   }, [userId, user]);
 
@@ -84,8 +82,7 @@ export default function CallInterface() {
       setCallStatus('ringing');
 
       // Play calling sound
-      callingSound.loop = true;
-      callingSound.play().catch(console.error);
+      startCallingSound();
 
       // Subscribe to call status changes
       const channel = supabase
@@ -100,14 +97,12 @@ export default function CallInterface() {
           },
           (payload) => {
             if (payload.new.status === 'accepted') {
-              callingSound.pause();
-              callingSound.currentTime = 0;
-              connectSound.play().catch(console.error);
+              stopCallingSound();
+              playConnectSound();
               setCallStatus('connected');
               setShowCallInterface(true);
             } else if (payload.new.status === 'rejected' || payload.new.status === 'missed') {
-              callingSound.pause();
-              callingSound.currentTime = 0;
+              stopCallingSound();
               setCallStatus('ended');
               toast.error('Chamada não atendida');
               setTimeout(() => navigate(-1), 1500);
@@ -126,9 +121,8 @@ export default function CallInterface() {
     if (!callId) return;
 
     try {
-      callingSound.pause();
-      callingSound.currentTime = 0;
-      hangupSound.play().catch(console.error);
+      stopCallingSound();
+      playHangupSound();
 
       await supabase
         .from('calls')
