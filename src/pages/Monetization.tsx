@@ -88,8 +88,14 @@ export default function Monetization() {
     }
   };
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
+  const getStatusBadge = (w: any) => {
+    if (w.payout_status === 'completed') {
+      return <Badge className="bg-green-500/10 text-green-500 border-green-500/30"><CheckCircle className="h-3 w-3 mr-1" />Transferido</Badge>;
+    }
+    if (w.status === 'approved' && w.payout_status === 'manual_transfer') {
+      return <Badge className="bg-yellow-500/10 text-yellow-500 border-yellow-500/30"><Clock className="h-3 w-3 mr-1" />Aguardando transferência</Badge>;
+    }
+    switch (w.status) {
       case "approved":
         return <Badge className="bg-green-500/10 text-green-500 border-green-500/30"><CheckCircle className="h-3 w-3 mr-1" />Aprovado</Badge>;
       case "pending":
@@ -97,7 +103,7 @@ export default function Monetization() {
       case "rejected":
         return <Badge className="bg-red-500/10 text-red-500 border-red-500/30"><XCircle className="h-3 w-3 mr-1" />Rejeitado</Badge>;
       default:
-        return <Badge>{status}</Badge>;
+        return <Badge>{w.status}</Badge>;
     }
   };
 
