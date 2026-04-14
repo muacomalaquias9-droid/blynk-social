@@ -2,7 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
 Deno.serve(async (req) => {
@@ -15,7 +15,6 @@ Deno.serve(async (req) => {
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
 
-    // Verify caller is admin
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -24,24 +23,30 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Use getClaims to verify token without HTTP call
     const userClient = createClient(supabaseUrl, anonKey, {
       global: { headers: { Authorization: authHeader } },
     });
-    const { data: userData, error: authError } = await userClient.auth.getUser();
-    if (authError || !userData?.user) {
-      return new Response(JSON.stringify({ error: "Auth failed" }), {
+    
+    const token = authHeader.replace("Bearer ", "");
+    const { data: claimsData, error: claimsError } = await userClient.auth.getClaims(token);
+    
+    if (claimsError || !claimsData?.claims) {
+      console.error("Claims error:", claimsError);
+      return new Response(JSON.stringify({ error: "Token invalid" }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Use service role to check admin
+    const userId = claimsData.claims.sub;
     const adminClient = createClient(supabaseUrl, serviceRoleKey);
 
+    // Check admin role
     const { data: roleData } = await adminClient
       .from("user_roles")
       .select("role")
-      .eq("user_id", userData.user.id)
+      .eq("user_id", userId)
       .eq("role", "admin")
       .maybeSingle();
 
@@ -56,13 +61,13 @@ Deno.serve(async (req) => {
     const { type, targetUserId, amount } = body;
 
     if (!type || !targetUserId || !amount) {
-      return new Response(JSON.stringify({ error: "Missing params" }), {
+      return new Response(JSON.stringify({ error: "Missing params: type, targetUserId, amount required" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Get real user IDs to use
+    // Get real user IDs
     const { data: realUsers } = await adminClient
       .from("profiles")
       .select("id")
@@ -70,14 +75,13 @@ Deno.serve(async (req) => {
       .limit(Math.min(amount, 500));
 
     if (!realUsers || realUsers.length === 0) {
-      return new Response(JSON.stringify({ error: "No users available for boost" }), {
+      return new Response(JSON.stringify({ error: "No users available" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
     if (type === "likes") {
-      // Get user's latest posts
       const { data: posts } = await adminClient
         .from("posts")
         .select("id")
@@ -86,7 +90,7 @@ Deno.serve(async (req) => {
         .limit(5);
 
       if (!posts || posts.length === 0) {
-        return new Response(JSON.stringify({ error: "No posts found" }), {
+        return new Response(JSON.stringify({ error: "No posts found for this user" }), {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -96,9 +100,9 @@ Deno.serve(async (req) => {
       for (const post of posts) {
         const likesPerPost = Math.ceil(amount / posts.length);
         for (let i = 0; i < likesPerPost && added < amount && added < realUsers.length; i++) {
-          const userId = realUsers[added % realUsers.length].id;
+          const uId = realUsers[added % realUsers.length].id;
           const { error } = await adminClient.from("post_likes").upsert(
-            { post_id: post.id, user_id: userId },
+            { post_id: post.id, user_id: uId },
             { onConflict: "post_id,user_id", ignoreDuplicates: true }
           );
           if (!error) added++;
@@ -125,7 +129,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    return new Response(JSON.stringify({ error: "Invalid type" }), {
+    return new Response(JSON.stringify({ error: "Invalid type. Use 'likes' or 'followers'" }), {
       status: 400,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
