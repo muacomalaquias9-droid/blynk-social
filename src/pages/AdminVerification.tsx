@@ -458,11 +458,41 @@ export default function AdminVerification() {
                     </div>
                   )}
                   {w.payout_status === "manual_transfer" && (
-                    <div className="mt-2 p-2 bg-yellow-500/10 rounded text-xs">
+                    <div className="mt-2 p-2 bg-yellow-500/10 rounded text-xs space-y-2">
                       <p className="font-semibold text-yellow-600">⚠️ Transferência manual necessária:</p>
                       <p>IBAN: <span className="font-mono">{w.iban}</span></p>
                       <p>Titular: {w.account_name} · Valor: {w.amount} kz</p>
                       {w.payout_reference && <p>Ref: {w.payout_reference}</p>}
+                      <Button
+                        size="sm"
+                        className="w-full bg-green-600 hover:bg-green-700 text-white mt-2"
+                        disabled={processingId === w.id}
+                        onClick={async () => {
+                          setProcessingId(w.id);
+                          try {
+                            const { error } = await supabase.from("withdrawal_requests").update({
+                              payout_status: "completed",
+                            }).eq("id", w.id);
+                            if (error) throw error;
+                            await supabase.from("notifications").insert({
+                              user_id: w.user_id,
+                              type: "payment",
+                              title: "Saque transferido!",
+                              message: `O teu saque de ${w.amount} kz foi transferido para ${w.iban}.`,
+                              related_id: w.id,
+                            });
+                            toast.success(`✅ Transferência de ${w.amount} kz confirmada!`);
+                            loadData();
+                          } catch (err: any) {
+                            toast.error(err.message || "Erro");
+                          } finally {
+                            setProcessingId(null);
+                          }
+                        }}
+                      >
+                        {processingId === w.id ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+                        ✅ Confirmar Transferência Realizada
+                      </Button>
                     </div>
                   )}
                 </Card>

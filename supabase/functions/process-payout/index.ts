@@ -12,8 +12,6 @@ serve(async (req) => {
   }
 
   try {
-    const PLIQPAY_SECRET_KEY = Deno.env.get('PLIQPAY_SECRET_KEY');
-    const PLIQPAY_PUBLIC_KEY = Deno.env.get('PLIQPAY_API_KEY');
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
@@ -22,21 +20,22 @@ serve(async (req) => {
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) throw new Error('Not authenticated');
     const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) throw new Error('Invalid token');
+    
+    const { data: claimsData, error: claimsError } = await supabase.auth.getClaims(token);
+    if (claimsError || !claimsData?.claims) throw new Error('Invalid token');
+    
+    const userId = claimsData.claims.sub;
 
-    // Check admin role
     const { data: roleData } = await supabase
       .from('user_roles')
       .select('role')
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .eq('role', 'admin')
       .single();
 
     if (!roleData) throw new Error('Not authorized - admin only');
 
     const { withdrawal_id, action } = await req.json();
-
     if (!withdrawal_id) throw new Error('withdrawal_id required');
     if (!['approve', 'reject'].includes(action)) throw new Error('Invalid action');
 
@@ -54,7 +53,7 @@ serve(async (req) => {
       await supabase.from('withdrawal_requests').update({
         status: 'rejected',
         payout_status: 'rejected',
-        processed_by: user.id,
+        processed_by: userId,
         processed_at: new Date().toISOString(),
       }).eq('id', withdrawal_id);
 
@@ -63,158 +62,43 @@ serve(async (req) => {
       });
     }
 
-    // Try PlinqPay payout via multiple endpoints
-    let payoutSuccess = false;
-    let payoutReference = `MANUAL_${Date.now()}`;
-    let errorMsg = null;
+    // Approve - mark as manual_transfer (admin will confirm after bank transfer)
+    const payoutReference = `MANUAL_${Date.now()}`;
 
-    if (PLIQPAY_SECRET_KEY && PLIQPAY_PUBLIC_KEY) {
-      // Try transfer endpoint
-      const endpoints = [
-        'https://api.plinqpay.com/v1/transfer',
-        'https://api.plinqpay.com/v1/payout',
-        'https://api.plinqpay.com/v1/disbursement',
-      ];
-
-      for (const endpoint of endpoints) {
-        try {
-          console.log(`Trying payout endpoint: ${endpoint}`);
-          
-          const payoutBody = {
-            amount: withdrawal.amount,
-            currency: 'AOA',
-            recipient: {
-              iban: withdrawal.iban,
-              name: withdrawal.account_name,
-              phone: withdrawal.phone || '',
-              bank_code: withdrawal.iban?.substring(4, 8) || '',
-            },
-            description: `Blynk Payout - ${withdrawal.id}`,
-            reference: `PAYOUT_${withdrawal.id}_${Date.now()}`,
-            callback_url: `${supabaseUrl}/functions/v1/payment-webhook`,
-          };
-
-          const payoutResponse = await fetch(endpoint, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'api-key': PLIQPAY_SECRET_KEY,
-              'Authorization': `Bearer ${PLIQPAY_SECRET_KEY}`,
-              'X-API-Key': PLIQPAY_PUBLIC_KEY,
-            },
-            body: JSON.stringify(payoutBody),
-          });
-
-          const responseText = await payoutResponse.text();
-          console.log(`PlinqPay ${endpoint} response:`, payoutResponse.status, responseText);
-
-          if (payoutResponse.ok) {
-            try {
-              const payoutData = JSON.parse(responseText);
-              payoutReference = payoutData.reference || payoutData.id || payoutData.transaction_id || payoutReference;
-              payoutSuccess = true;
-              errorMsg = null;
-              console.log('Payout successful via', endpoint);
-              break;
-            } catch {
-              payoutSuccess = true;
-              errorMsg = null;
-              break;
-            }
-          } else if (payoutResponse.status === 404) {
-            // Endpoint not available, try next
-            errorMsg = `${endpoint}: 404 - Not available`;
-            continue;
-          } else {
-            errorMsg = `${endpoint}: ${payoutResponse.status} - ${responseText.substring(0, 200)}`;
-          }
-      } catch (e: unknown) {
-          const errMsg = e instanceof Error ? e.message : String(e);
-          errorMsg = `${endpoint}: Connection error - ${errMsg}`;
-          console.error(`Payout error at ${endpoint}:`, errMsg);
-        }
-      }
-
-      // If all transfer endpoints failed, try creating a payment request to the user's account
-      if (!payoutSuccess) {
-        try {
-          console.log('Attempting payment creation as fallback...');
-          const paymentResponse = await fetch('https://api.plinqpay.com/v1/payment', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'api-key': PLIQPAY_PUBLIC_KEY,
-            },
-            body: JSON.stringify({
-              amount: withdrawal.amount,
-              entity: '01055',
-              description: `Blynk Saque - ${withdrawal.account_name}`,
-              reference: `SAQUE_${withdrawal.id}`,
-              callback_url: `${supabaseUrl}/functions/v1/payment-webhook`,
-            }),
-          });
-
-          const paymentText = await paymentResponse.text();
-          console.log('Payment fallback response:', paymentResponse.status, paymentText);
-          
-          if (paymentResponse.ok) {
-            try {
-              const paymentData = JSON.parse(paymentText);
-              payoutReference = paymentData.reference || paymentData.id || `PAYMENT_${Date.now()}`;
-            } catch {}
-          }
-        } catch (e: unknown) {
-          console.error('Payment fallback error:', e instanceof Error ? e.message : e);
-        }
-      }
-    } else {
-      errorMsg = 'PlinqPay API keys not configured';
-    }
-
-    // Update withdrawal status
-    const updateData: any = {
+    await supabase.from('withdrawal_requests').update({
       status: 'approved',
-      payout_status: payoutSuccess ? 'completed' : 'manual_transfer',
+      payout_status: 'manual_transfer',
       payout_reference: payoutReference,
-      processed_by: user.id,
+      processed_by: userId,
       processed_at: new Date().toISOString(),
-    };
-    if (errorMsg) updateData.error_message = errorMsg;
+    }).eq('id', withdrawal_id);
 
-    await supabase.from('withdrawal_requests').update(updateData).eq('id', withdrawal_id);
-
-    // Log the payout
+    // Log
     await supabase.from('admin_payment_logs').insert({
       user_id: withdrawal.user_id,
       amount: -withdrawal.amount,
       payment_reference: payoutReference,
       status: 'withdrawn',
-      subscription_id: null,
     });
 
     // Notify user
     await supabase.from('notifications').insert({
       user_id: withdrawal.user_id,
       type: 'payment',
-      title: 'Saque processado',
-      message: payoutSuccess
-        ? `O teu saque de ${withdrawal.amount} kz foi processado automaticamente via PlinqPay.`
-        : `O teu saque de ${withdrawal.amount} kz foi aprovado e será transferido manualmente para ${withdrawal.iban}.`,
+      title: 'Saque aprovado',
+      message: `O teu saque de ${withdrawal.amount} kz foi aprovado. A transferência para ${withdrawal.iban} será realizada em breve.`,
       related_id: withdrawal_id,
     });
 
     return new Response(JSON.stringify({
       success: true,
       status: 'approved',
-      payout_method: payoutSuccess ? 'automatic' : 'manual_transfer',
+      payout_method: 'manual_transfer',
       payout_reference: payoutReference,
       iban: withdrawal.iban,
       account_name: withdrawal.account_name,
       amount: withdrawal.amount,
-      error_details: errorMsg,
-      message: payoutSuccess
-        ? 'Payout processado automaticamente via PlinqPay'
-        : `Transfira manualmente ${withdrawal.amount} kz para IBAN ${withdrawal.iban} (${withdrawal.account_name})`,
+      message: `Transfira manualmente ${withdrawal.amount} kz para IBAN ${withdrawal.iban} (${withdrawal.account_name}). Depois confirme a transferência no painel.`,
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
