@@ -42,8 +42,7 @@ export default function IncomingCallNotification() {
             setCaller(callerData);
             
             // Play ringing sound
-            ringingSound.loop = true;
-            ringingSound.play().catch(console.error);
+            startRingingSound();
           }
         }
       )
@@ -51,17 +50,14 @@ export default function IncomingCallNotification() {
 
     return () => {
       supabase.removeChannel(channel);
-      ringingSound.pause();
-      ringingSound.currentTime = 0;
+      stopRingingSound();
     };
   }, [user]);
 
   const acceptCall = async () => {
     if (!incomingCall) return;
 
-    ringingSound.pause();
-    ringingSound.currentTime = 0;
-
+    stopRingingSound();
     await supabase
       .from('calls')
       .update({ status: 'accepted' })

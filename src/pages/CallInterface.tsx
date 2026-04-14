@@ -31,8 +31,7 @@ export default function CallInterface() {
     }
     
     return () => {
-      callingSound.pause();
-      callingSound.currentTime = 0;
+      stopCallingSound();
     };
   }, [userId, user]);
 
@@ -83,8 +82,7 @@ export default function CallInterface() {
       setCallStatus('ringing');
 
       // Play calling sound
-      callingSound.loop = true;
-      callingSound.play().catch(console.error);
+      startCallingSound();
 
       // Subscribe to call status changes
       const channel = supabase
@@ -99,14 +97,12 @@ export default function CallInterface() {
           },
           (payload) => {
             if (payload.new.status === 'accepted') {
-              callingSound.pause();
-              callingSound.currentTime = 0;
-              connectSound.play().catch(console.error);
+              stopCallingSound();
+              playConnectSound();
               setCallStatus('connected');
               setShowCallInterface(true);
             } else if (payload.new.status === 'rejected' || payload.new.status === 'missed') {
-              callingSound.pause();
-              callingSound.currentTime = 0;
+              stopCallingSound();
               setCallStatus('ended');
               toast.error('Chamada não atendida');
               setTimeout(() => navigate(-1), 1500);
@@ -125,9 +121,8 @@ export default function CallInterface() {
     if (!callId) return;
 
     try {
-      callingSound.pause();
-      callingSound.currentTime = 0;
-      hangupSound.play().catch(console.error);
+      stopCallingSound();
+      playHangupSound();
 
       await supabase
         .from('calls')
