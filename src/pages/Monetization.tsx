@@ -197,7 +197,7 @@ export default function Monetization() {
                   <p className="text-sm font-medium">{w.amount} kz → {w.iban}</p>
                   <p className="text-xs text-muted-foreground">{new Date(w.created_at).toLocaleDateString("pt-BR")}</p>
                 </div>
-                {getStatusBadge(w.status)}
+                {getStatusBadge(w)}
               </Card>
             ))}
           </>
