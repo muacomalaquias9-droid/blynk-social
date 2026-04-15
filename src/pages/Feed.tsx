@@ -130,6 +130,8 @@ export default function Feed() {
     // Real-time: posts + stories update instantly
     const channel = supabase.channel("feed-realtime")
       .on("postgres_changes", { event: "*", schema: "public", table: "posts" }, () => loadPosts())
+      .on("postgres_changes", { event: "*", schema: "public", table: "post_likes" }, () => loadPosts())
+      .on("postgres_changes", { event: "*", schema: "public", table: "post_reactions" }, () => loadPosts())
       .on("postgres_changes", { event: "*", schema: "public", table: "stories" }, () => {
         // Stories bar updates automatically via its own channel
       })
@@ -181,17 +183,27 @@ export default function Feed() {
     const postIdx = posts.findIndex(p => p.id === postId);
     if (postIdx === -1) return;
     const post = posts[postIdx];
-    const existing = post.post_reactions?.find(r => r.user_id === currentUserId);
+    const existingReaction = post.post_reactions?.find(r => r.user_id === currentUserId);
+    const existingLike = post.post_likes?.find(l => l.user_id === currentUserId);
+    const existing = existingReaction || existingLike;
 
     // Optimistic update
     const newPosts = [...posts];
     if (existing) {
-      newPosts[postIdx] = { ...post, post_reactions: post.post_reactions.filter(r => r.user_id !== currentUserId) };
+      newPosts[postIdx] = {
+        ...post,
+        post_reactions: (post.post_reactions || []).filter(r => r.user_id !== currentUserId),
+        post_likes: (post.post_likes || []).filter(l => l.user_id !== currentUserId),
+      };
       playClickSound();
     } else {
       const allowed = await checkLikeLimit();
       if (!allowed) return;
-      newPosts[postIdx] = { ...post, post_reactions: [...(post.post_reactions || []), { user_id: currentUserId, reaction_type: "heart" }] };
+      newPosts[postIdx] = {
+        ...post,
+        post_reactions: [...(post.post_reactions || []), { user_id: currentUserId, reaction_type: "heart" }],
+        post_likes: [...(post.post_likes || []), { user_id: currentUserId }],
+      };
       playLikeSound();
       setLikeAnimations(prev => ({ ...prev, [postId]: true }));
       setTimeout(() => setLikeAnimations(prev => ({ ...prev, [postId]: false })), 1000);
@@ -200,9 +212,15 @@ export default function Feed() {
 
     // DB operation
     if (existing) {
-      await supabase.from("post_reactions").delete().eq("post_id", postId).eq("user_id", currentUserId);
+      await Promise.all([
+        supabase.from("post_reactions").delete().eq("post_id", postId).eq("user_id", currentUserId),
+        supabase.from("post_likes").delete().eq("post_id", postId).eq("user_id", currentUserId),
+      ]);
     } else {
-      await supabase.from("post_reactions").insert({ post_id: postId, user_id: currentUserId, reaction_type: "heart" });
+      await Promise.all([
+        supabase.from("post_reactions").insert({ post_id: postId, user_id: currentUserId, reaction_type: "heart" }),
+        supabase.from("post_likes").insert({ post_id: postId, user_id: currentUserId }),
+      ]);
     }
   };
 
@@ -228,7 +246,13 @@ export default function Feed() {
     }
   };
 
-  const getUserReaction = (post: Post) => post.post_reactions?.find(r => r.user_id === currentUserId)?.reaction_type;
+  const getUserReaction = (post: Post) => {
+    const reaction = post.post_reactions?.find(r => r.user_id === currentUserId)?.reaction_type;
+    if (reaction) return reaction;
+    return post.post_likes?.some(like => like.user_id === currentUserId) ? 'heart' : undefined;
+  };
+
+  const getLikeCount = (post: Post) => Math.max(post.post_reactions?.length || 0, post.post_likes?.length || 0);
 
   const isVideo = (url: string) => {
     if (!url) return false;
@@ -413,7 +437,7 @@ export default function Feed() {
             <div className="space-y-3 px-3 pb-4">
               {visiblePosts.map((post, index) => {
                 const userReaction = getUserReaction(post);
-                const totalReactions = post.post_reactions?.length || 0;
+                const totalReactions = getLikeCount(post);
                 const isSaved = savedPosts.includes(post.id);
                 const showAd = index > 0 && index % 5 === 0 && sponsoredAds.length > 0;
                 const adIndex = Math.floor(index / 5) % sponsoredAds.length;
@@ -478,14 +502,13 @@ export default function Feed() {
                       )}
 
                       {/* Music tag - minimal */}
-                      {post.music_name && (
+                      {post.music_name && post.music_url && (
                         <div className="px-4 pb-2">
-                          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/8 dark:bg-primary/12">
-                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
-                            <span className="text-[11px] text-primary font-medium truncate max-w-[200px]">
-                              {post.music_name} — {post.music_artist}
-                            </span>
-                          </div>
+                          <MusicPlayer
+                            musicName={post.music_name}
+                            musicArtist={post.music_artist}
+                            musicUrl={post.music_url}
+                          />
                         </div>
                       )}
 

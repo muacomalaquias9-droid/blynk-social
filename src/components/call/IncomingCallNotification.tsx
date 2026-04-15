@@ -7,48 +7,99 @@ import { Button } from '@/components/ui/button';
 import { Phone, PhoneOff, Video } from 'lucide-react';
 import { toast } from 'sonner';
 import { startRingingSound, stopRingingSound } from '@/utils/callSounds';
+import { showIncomingCallNotification } from '@/utils/pushNotifications';
 
 export default function IncomingCallNotification() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [incomingCall, setIncomingCall] = useState<any>(null);
   const [caller, setCaller] = useState<any>(null);
-  // Sounds are now generated programmatically
 
   useEffect(() => {
     if (!user) return;
 
+    let mounted = true;
+
+    const presentIncomingCall = async (callData: any, notifyDevice = false) => {
+      const { data: callerData } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', callData.caller_id)
+        .single();
+
+      if (!mounted) return;
+
+      setIncomingCall(callData);
+      setCaller(callerData);
+      startRingingSound();
+
+      if (notifyDevice && callerData) {
+        await showIncomingCallNotification(
+          callerData.first_name || 'Nova chamada',
+          callData.call_type,
+          callerData.avatar_url || undefined,
+          callData.caller_id,
+          callData.id
+        );
+      }
+    };
+
+    const loadExistingIncomingCall = async () => {
+      const { data } = await supabase
+        .from('calls')
+        .select('*')
+        .eq('receiver_id', user.id)
+        .eq('status', 'calling')
+        .order('started_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (data) {
+        await presentIncomingCall(data);
+      }
+    };
+
+    loadExistingIncomingCall();
+
     const channel = supabase
-      .channel('incoming_calls')
+      .channel(`incoming_calls:${user.id}`)
       .on(
         'postgres_changes',
         {
-          event: 'INSERT',
+          event: '*',
           schema: 'public',
           table: 'calls',
           filter: `receiver_id=eq.${user.id}`,
         },
         async (payload) => {
-          if (payload.new.status === 'calling') {
-            setIncomingCall(payload.new);
-            
-            // Load caller info
-            const { data: callerData } = await supabase
-              .from('profiles')
-              .select('*')
-              .eq('id', payload.new.caller_id)
-              .single();
-            
-            setCaller(callerData);
-            
-            // Play ringing sound
-            startRingingSound();
+          const callData = payload.new as any;
+
+          if (payload.eventType === 'INSERT' && callData?.status === 'calling') {
+            await presentIncomingCall(callData, true);
+            return;
+          }
+
+          if (payload.eventType === 'UPDATE' && callData?.status === 'calling') {
+            await presentIncomingCall(callData);
+            return;
+          }
+
+          if (payload.eventType === 'UPDATE' && callData?.status !== 'calling') {
+            setIncomingCall((prev: any) => {
+              if (prev?.id === callData.id) {
+                stopRingingSound();
+                setCaller(null);
+                return null;
+              }
+              return prev;
+            });
           }
         }
       )
       .subscribe();
 
     return () => {
+      mounted = false;
       supabase.removeChannel(channel);
       stopRingingSound();
     };
@@ -57,13 +108,29 @@ export default function IncomingCallNotification() {
   const acceptCall = async () => {
     if (!incomingCall) return;
 
+    try {
+      const mediaPreview = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+        video: incomingCall.call_type === 'video',
+      });
+
+      mediaPreview.getTracks().forEach((track) => track.stop());
+    } catch (error) {
+      toast.error('Permita microfone e câmera para atender a chamada');
+      return;
+    }
+
     stopRingingSound();
     await supabase
       .from('calls')
       .update({ status: 'accepted' })
       .eq('id', incomingCall.id);
 
-    navigate(`/chamada/${incomingCall.caller_id}?type=${incomingCall.call_type}`);
+    navigate(`/chat/${incomingCall.caller_id}?callId=${incomingCall.id}&callType=${incomingCall.call_type}&accept=1`);
     setIncomingCall(null);
     setCaller(null);
   };

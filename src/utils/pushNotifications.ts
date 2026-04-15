@@ -44,6 +44,8 @@ interface NotificationData {
   messageId?: string;
   type?: string;
   storyId?: string;
+  callId?: string;
+  callType?: string;
   [key: string]: unknown;
 }
 
@@ -119,6 +121,42 @@ export const showMessageNotification = async (
     actions: [
       { action: 'reply', title: '💬 Responder' },
       { action: 'mark-read', title: '✓ Marcar como lido' },
+    ],
+  });
+};
+
+export const showIncomingCallNotification = async (
+  callerName: string,
+  callType: 'voice' | 'video',
+  callerAvatar?: string,
+  callerId?: string,
+  callId?: string
+) => {
+  const hasPermission = await requestNotificationPermission();
+  if (!hasPermission) return;
+
+  const query = new URLSearchParams({
+    callId: callId || '',
+    callType,
+    accept: '1',
+  }).toString();
+
+  showNotification(callType === 'video' ? 'Chamada de vídeo' : 'Chamada de voz', {
+    body: `${callerName} está a ligar para você`,
+    icon: callerAvatar || '/logo-192.png',
+    tag: `call-${callId || callerId || Date.now()}`,
+    requireInteraction: true,
+    data: {
+      url: callerId ? `/chat/${callerId}?${query}` : '/messages',
+      avatar: callerAvatar,
+      senderId: callerId,
+      callId,
+      callType,
+      type: 'incoming-call',
+    },
+    actions: [
+      { action: 'accept-call', title: 'Atender' },
+      { action: 'view', title: 'Abrir' },
     ],
   });
 };
