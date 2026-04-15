@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -61,6 +61,7 @@ interface Profile {
 export default function Chat() {
   const { friendId } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
   const [friend, setFriend] = useState<Profile | null>(null);
@@ -144,6 +145,38 @@ export default function Chat() {
       window.removeEventListener('chatSettingsUpdated', handleSettingsUpdate);
     };
   }, [friendId]);
+
+  useEffect(() => {
+    if (!user || !friendId) return;
+
+    const callId = searchParams.get('callId');
+    const callType = searchParams.get('callType') === 'video' ? 'video' : 'voice';
+    const shouldAccept = searchParams.get('accept') === '1';
+
+    if (!callId || activeCall?.id === callId) return;
+
+    let cancelled = false;
+
+    const joinExistingCall = async () => {
+      if (shouldAccept) {
+        await supabase
+          .from('calls')
+          .update({ status: 'accepted' })
+          .eq('id', callId)
+          .eq('receiver_id', user.id);
+      }
+
+      if (!cancelled) {
+        setActiveCall({ id: callId, type: callType });
+      }
+    };
+
+    joinExistingCall();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user, friendId, searchParams, activeCall?.id]);
 
   const subscribeToChatSettings = () => {
     if (!user || !friendId) return;
@@ -507,6 +540,45 @@ export default function Chat() {
   const startCall = async (type: 'voice' | 'video') => {
     if (!user || !friendId) return;
 
+    try {
+      const mediaPreview = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+        video: type === 'video' ? { facingMode: 'user' } : false,
+      });
+
+      mediaPreview.getTracks().forEach((track) => track.stop());
+    } catch (error) {
+      toast.error(type === 'video' ? 'Permita câmera e microfone para ligar' : 'Permita microfone para ligar');
+      return;
+    }
+
+    const activeStatuses = ['calling', 'accepted', 'ongoing'];
+    const [{ data: myCalls }, { data: friendCalls }] = await Promise.all([
+      supabase
+        .from('calls')
+        .select('id')
+        .or(`caller_id.eq.${user.id},receiver_id.eq.${user.id}`)
+        .in('status', activeStatuses)
+        .is('ended_at', null)
+        .limit(1),
+      supabase
+        .from('calls')
+        .select('id')
+        .or(`caller_id.eq.${friendId},receiver_id.eq.${friendId}`)
+        .in('status', activeStatuses)
+        .is('ended_at', null)
+        .limit(1),
+    ]);
+
+    if ((myCalls?.length || 0) > 0 || (friendCalls?.length || 0) > 0) {
+      toast.error('Um dos usuários já está em chamada');
+      return;
+    }
+
     const { data, error } = await supabase
       .from('calls')
       .insert({
@@ -519,7 +591,12 @@ export default function Chat() {
       .select()
       .single();
 
-    if (!error && data) {
+    if (error) {
+      toast.error('Não foi possível iniciar a chamada');
+      return;
+    }
+
+    if (data) {
       setActiveCall({ id: data.id, type });
     }
   };
@@ -626,7 +703,10 @@ export default function Chat() {
       <CallInterface
         callId={activeCall.id}
         isVideo={activeCall.type === 'video'}
-        onEnd={() => setActiveCall(null)}
+        onEnd={() => {
+          setActiveCall(null);
+          navigate(`/chat/${friendId}`, { replace: true });
+        }}
       />
     );
   }

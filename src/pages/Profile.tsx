@@ -113,6 +113,25 @@ export default function Profile() {
 
   useEffect(() => { loadProfile(); }, [userId]);
 
+  useEffect(() => {
+    if (!profile?.id) return;
+
+    const channel = supabase
+      .channel(`profile-live:${profile.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'follows', filter: `following_id=eq.${profile.id}` }, () => loadStats(profile.id))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'follows', filter: `follower_id=eq.${profile.id}` }, () => loadStats(profile.id))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'post_likes' }, () => loadPosts(profile.id))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'posts', filter: `user_id=eq.${profile.id}` }, () => {
+        loadStats(profile.id);
+        loadPosts(profile.id);
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [profile?.id]);
+
   const loadProfile = async () => {
     const startTime = Date.now();
     try {

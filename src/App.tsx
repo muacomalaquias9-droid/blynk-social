@@ -64,6 +64,7 @@ import VerificationCheckout from "./pages/VerificationCheckout";
 import AdminVerification from "./pages/AdminVerification";
 import Monetization from "./pages/Monetization";
 import { requestNotificationPermission } from "./utils/pushNotifications";
+import IncomingCallNotification from "@/components/call/IncomingCallNotification";
 
 const queryClient = new QueryClient();
 
@@ -101,6 +102,7 @@ const AppContent = () => {
   return (
     <>
       {/* FreeDataBanner removed */}
+      <IncomingCallNotification />
       <MessageNotification />
       <Routes>
         <Route path="/" element={<SavedAccounts />} />
