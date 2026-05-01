@@ -26,6 +26,8 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
   const localStreamRef = useRef<MediaStream | null>(null);
   const channelRef = useRef<any>(null);
   const connectSoundRef = useRef<HTMLAudioElement | null>(null);
+  const offerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pendingIceRef = useRef<RTCIceCandidateInit[]>([]);
 
   useEffect(() => {
     connectSoundRef.current = new Audio('/sounds/connect.mp3');
@@ -126,8 +128,20 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
           if (payload?.from === user?.id) return;
 
           try {
-            if (payload.type === 'offer' && !isCaller) {
+            if (payload.type === 'ready' && isCaller) {
+              // Receiver just subscribed — (re)send the offer immediately
+              await sendOffer();
+            } else if (payload.type === 'offer' && !isCaller) {
+              if (pc.signalingState !== 'stable' && pc.currentRemoteDescription) {
+                // Already negotiated — ignore duplicate offers
+                return;
+              }
               await pc.setRemoteDescription(new RTCSessionDescription(payload.offer));
+              // Drain any queued ICE
+              for (const c of pendingIceRef.current) {
+                try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch {}
+              }
+              pendingIceRef.current = [];
               const answer = await pc.createAnswer();
               await pc.setLocalDescription(answer);
               channel.send({
@@ -136,9 +150,23 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
                 payload: { type: 'answer', answer, from: user?.id },
               });
             } else if (payload.type === 'answer' && isCaller) {
+              if (pc.currentRemoteDescription) return; // already set
               await pc.setRemoteDescription(new RTCSessionDescription(payload.answer));
+              // Stop resending offers once answered
+              if (offerIntervalRef.current) {
+                clearInterval(offerIntervalRef.current);
+                offerIntervalRef.current = null;
+              }
+              for (const c of pendingIceRef.current) {
+                try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch {}
+              }
+              pendingIceRef.current = [];
             } else if (payload.type === 'ice-candidate' && payload.candidate) {
-              await pc.addIceCandidate(new RTCIceCandidate(payload.candidate));
+              if (pc.remoteDescription) {
+                await pc.addIceCandidate(new RTCIceCandidate(payload.candidate));
+              } else {
+                pendingIceRef.current.push(payload.candidate);
+              }
             } else if (payload.type === 'end-call') {
               cleanup();
               onEnd();
@@ -148,24 +176,51 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
           }
         })
         .subscribe(async (status) => {
-          if (status === 'SUBSCRIBED' && isCaller) {
-            // Small delay to let receiver subscribe
-            setTimeout(async () => {
-              const offer = await pc.createOffer({
-                offerToReceiveAudio: true,
-                offerToReceiveVideo: isVideo,
-              });
-              await pc.setLocalDescription(offer);
-              channel.send({
-                type: 'broadcast',
-                event: 'signal',
-                payload: { type: 'offer', offer, from: user?.id },
-              });
-            }, 1000);
+          if (status !== 'SUBSCRIBED') return;
+          if (isCaller) {
+            // Send first offer; keep retrying until we get an answer (max ~30s)
+            await sendOffer();
+            offerIntervalRef.current = setInterval(() => {
+              if (pc.currentRemoteDescription) {
+                if (offerIntervalRef.current) clearInterval(offerIntervalRef.current);
+                offerIntervalRef.current = null;
+                return;
+              }
+              sendOffer().catch(() => {});
+            }, 2000);
+          } else {
+            // Tell caller we're here so they (re)send their offer
+            channel.send({
+              type: 'broadcast',
+              event: 'signal',
+              payload: { type: 'ready', from: user?.id },
+            });
           }
         });
 
       channelRef.current = channel;
+
+      async function sendOffer() {
+        if (!isCaller) return;
+        try {
+          if (pc.signalingState === 'closed') return;
+          // Only create a new offer if we don't have one yet
+          if (!pc.localDescription || pc.signalingState === 'stable') {
+            const offer = await pc.createOffer({
+              offerToReceiveAudio: true,
+              offerToReceiveVideo: isVideo,
+            });
+            await pc.setLocalDescription(offer);
+          }
+          channel.send({
+            type: 'broadcast',
+            event: 'signal',
+            payload: { type: 'offer', offer: pc.localDescription, from: user?.id },
+          });
+        } catch (e) {
+          console.error('sendOffer error', e);
+        }
+      }
 
       // ICE candidates
       pc.onicecandidate = (event) => {
@@ -199,6 +254,10 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
   };
 
   const cleanup = () => {
+    if (offerIntervalRef.current) {
+      clearInterval(offerIntervalRef.current);
+      offerIntervalRef.current = null;
+    }
     localStreamRef.current?.getTracks().forEach(track => track.stop());
     peerConnectionRef.current?.close();
     if (channelRef.current) supabase.removeChannel(channelRef.current);
