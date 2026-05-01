@@ -15,7 +15,7 @@ import {
   LogOut, Settings, Bookmark, Shield, Users, Sun, Moon,
   Target, Video, DollarSign, BadgeCheck, CreditCard,
   HelpCircle, FileText, Lock, ChevronRight, Megaphone,
-  TrendingUp, Globe, Webhook, BookOpen
+  TrendingUp, Globe, Webhook, BookOpen, Activity
 } from "lucide-react";
 
 interface Profile {
@@ -206,6 +206,7 @@ export default function SidebarPage() {
                 <MenuItem icon={CreditCard} label="Pagamentos" path="/admin/verification" />
                 <MenuItem icon={Webhook} label="API & Webhooks" path="/api-keys" accent />
                 <MenuItem icon={BookOpen} label="Documentação API" path="/docs" />
+                <MenuItem icon={Activity} label="API Status" path="/api-status" />
               </div>
             </>
           )}
