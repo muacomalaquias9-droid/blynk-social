@@ -63,6 +63,8 @@ import SidebarPage from "./pages/SidebarPage";
 import VerificationCheckout from "./pages/VerificationCheckout";
 import AdminVerification from "./pages/AdminVerification";
 import Monetization from "./pages/Monetization";
+import ApiKeys from "./pages/ApiKeys";
+import ApiDocs from "./pages/ApiDocs";
 import { requestNotificationPermission } from "./utils/pushNotifications";
 import IncomingCallNotification from "@/components/call/IncomingCallNotification";
 
@@ -560,6 +562,20 @@ const AppContent = () => {
             </ProtectedRoute>
           }
         />
+
+        {/* API Keys (admin only) */}
+        <Route
+          path="/api-keys"
+          element={
+            <ProtectedRoute>
+              <ApiKeys />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* API Documentation (public) */}
+        <Route path="/docs" element={<ApiDocs />} />
+        <Route path="/api-docs" element={<ApiDocs />} />
         
         <Route path="*" element={<NotFound />} />
       </Routes>
