@@ -26,3 +26,6 @@ verify_jwt = false
 
 [functions.admin-boost]
 verify_jwt = false
+
+[functions.public-api]
+verify_jwt = false

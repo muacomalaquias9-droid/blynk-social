@@ -163,6 +163,110 @@ export type Database = {
           },
         ]
       }
+      api_keys: {
+        Row: {
+          allowed_origins: string[] | null
+          created_at: string
+          description: string | null
+          expires_at: string | null
+          id: string
+          is_active: boolean
+          last_used_at: string | null
+          name: string
+          public_key: string
+          rate_limit_per_minute: number
+          scopes: string[]
+          secret_key_hash: string
+          secret_key_preview: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          allowed_origins?: string[] | null
+          created_at?: string
+          description?: string | null
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean
+          last_used_at?: string | null
+          name: string
+          public_key: string
+          rate_limit_per_minute?: number
+          scopes?: string[]
+          secret_key_hash: string
+          secret_key_preview: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          allowed_origins?: string[] | null
+          created_at?: string
+          description?: string | null
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean
+          last_used_at?: string | null
+          name?: string
+          public_key?: string
+          rate_limit_per_minute?: number
+          scopes?: string[]
+          secret_key_hash?: string
+          secret_key_preview?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      api_request_logs: {
+        Row: {
+          api_key_id: string | null
+          created_at: string
+          endpoint: string
+          error_message: string | null
+          id: string
+          ip_address: string | null
+          method: string
+          origin: string | null
+          response_time_ms: number | null
+          status_code: number | null
+          user_agent: string | null
+        }
+        Insert: {
+          api_key_id?: string | null
+          created_at?: string
+          endpoint: string
+          error_message?: string | null
+          id?: string
+          ip_address?: string | null
+          method: string
+          origin?: string | null
+          response_time_ms?: number | null
+          status_code?: number | null
+          user_agent?: string | null
+        }
+        Update: {
+          api_key_id?: string | null
+          created_at?: string
+          endpoint?: string
+          error_message?: string | null
+          id?: string
+          ip_address?: string | null
+          method?: string
+          origin?: string | null
+          response_time_ms?: number | null
+          status_code?: number | null
+          user_agent?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "api_request_logs_api_key_id_fkey"
+            columns: ["api_key_id"]
+            isOneToOne: false
+            referencedRelation: "api_keys"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       blocked_accounts: {
         Row: {
           blocked_by: string | null
