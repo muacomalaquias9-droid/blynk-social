@@ -1,10 +1,25 @@
 // Blynk Public REST API
 // Authenticates with X-API-Key (public key) + X-API-Secret headers.
-// Routes: GET /v1/posts, /v1/posts/:id, /v1/profiles, /v1/profiles/:id,
-//         /v1/users/:id/followers, /v1/comments?post_id=, /v1/likes?post_id=,
-//         /v1/messages?user_id=  (requires scope), /v1/stats
-// Auth route:  POST /v1/auth/login  { email, password }  -> session
-//              POST /v1/auth/signup { email, password, username }
+// For write operations the SDK additionally sends "Authorization: Bearer <session_jwt>"
+// returned from /v1/auth/login.  The function validates the JWT against Supabase auth
+// and then performs the operation on behalf of that user.
+//
+// Read:   GET /v1/posts, /v1/posts/:id, /v1/profiles, /v1/profiles/:id,
+//         /v1/users/:id/followers, /v1/users/:id/following,
+//         /v1/comments?post_id=, /v1/likes?post_id=,
+//         /v1/messages?user_id=  (requires secret), /v1/stats,
+//         /v1/realtime/info  (returns Supabase realtime URL + anon key)
+// Auth:   POST /v1/auth/login   { email, password }  -> { user, session }
+//         POST /v1/auth/signup  { email, password, username }
+// Write (require Bearer session):
+//         POST   /v1/posts                  { content, image_url? }
+//         DELETE /v1/posts/:id
+//         POST   /v1/comments               { post_id, content }
+//         POST   /v1/likes                  { post_id }
+//         DELETE /v1/likes                  { post_id }
+//         POST   /v1/follows                { following_id }
+//         DELETE /v1/follows                { following_id }
+//         POST   /v1/messages               { receiver_id, content }
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
@@ -89,12 +104,41 @@ Deno.serve(async (req) => {
     await admin.from("api_keys").update({ last_used_at: new Date().toISOString() }).eq("id", keyRow.id);
   };
 
+  // Resolve current user from Authorization Bearer header (optional, required for writes)
+  const getCurrentUser = async (): Promise<{ id: string } | null> => {
+    const auth = req.headers.get("authorization") || req.headers.get("Authorization");
+    if (!auth?.startsWith("Bearer ")) return null;
+    const token = auth.slice(7);
+    const { data, error } = await admin.auth.getUser(token);
+    if (error || !data.user) return null;
+    return { id: data.user.id };
+  };
+
+  const requireUser = async () => {
+    const u = await getCurrentUser();
+    if (!u) {
+      await logRequest(401, "Missing or invalid Bearer token");
+      return { user: null as any, response: json({ error: "Authorization Bearer <session_jwt> required" }, 401) };
+    }
+    return { user: u, response: null };
+  };
+
   try {
     // --- Routes ---
     const seg = path.split("/").filter(Boolean); // ["v1","posts","..."]
     if (seg[0] !== "v1") {
       await logRequest(404, "Unknown path");
       return json({ error: "Not found", hint: "Use /v1/<resource>" }, 404);
+    }
+
+    // --- REALTIME INFO ---
+    if (seg[1] === "realtime" && seg[2] === "info") {
+      await logRequest(200);
+      return json({
+        url: SUPABASE_URL.replace("https://", "wss://") + "/realtime/v1",
+        anon_key: ANON,
+        hint: "Use the supabase-js client with this URL + anon key, then subscribe to postgres_changes on tables like 'posts', 'comments', 'post_likes', 'follows', 'messages'.",
+      });
     }
 
     // --- AUTH ---
@@ -124,6 +168,34 @@ Deno.serve(async (req) => {
 
     // --- POSTS ---
     if (seg[1] === "posts") {
+      // Create post
+      if (!seg[2] && req.method === "POST") {
+        const { user, response } = await requireUser();
+        if (response) return response;
+        const body = await req.json();
+        if (!body.content && !(Array.isArray(body.media_urls) && body.media_urls.length)) {
+          await logRequest(400, "content or media_urls required");
+          return json({ error: "content or media_urls required" }, 400);
+        }
+        const { data, error } = await admin.from("posts").insert({
+          user_id: user.id,
+          content: body.content || "",
+          media_urls: body.media_urls || null,
+          visibility: body.visibility || "public",
+        }).select().single();
+        if (error) throw error;
+        await logRequest(201);
+        return json({ data }, 201);
+      }
+      // Delete post
+      if (seg[2] && req.method === "DELETE") {
+        const { user, response } = await requireUser();
+        if (response) return response;
+        const { error } = await admin.from("posts").delete().eq("id", seg[2]).eq("user_id", user.id);
+        if (error) throw error;
+        await logRequest(200);
+        return json({ success: true });
+      }
       if (seg[2]) {
         const { data, error } = await admin.from("posts").select("*, profiles:user_id(id, username, full_name, avatar_url, verified)").eq("id", seg[2]).maybeSingle();
         if (error) throw error;
@@ -166,6 +238,23 @@ Deno.serve(async (req) => {
 
     // --- COMMENTS ---
     if (seg[1] === "comments") {
+      if (req.method === "POST") {
+        const { user, response } = await requireUser();
+        if (response) return response;
+        const body = await req.json();
+        if (!body.post_id || !body.content) {
+          await logRequest(400);
+          return json({ error: "post_id and content required" }, 400);
+        }
+        const { data, error } = await admin.from("comments").insert({
+          user_id: user.id,
+          post_id: body.post_id,
+          content: body.content,
+        }).select().single();
+        if (error) throw error;
+        await logRequest(201);
+        return json({ data }, 201);
+      }
       const postId = url.searchParams.get("post_id");
       let q = admin.from("comments").select("*, profiles:user_id(username, avatar_url)").order("created_at", { ascending: false }).limit(100);
       if (postId) q = q.eq("post_id", postId);
@@ -177,6 +266,25 @@ Deno.serve(async (req) => {
 
     // --- LIKES ---
     if (seg[1] === "likes") {
+      if (req.method === "POST" || req.method === "DELETE") {
+        const { user, response } = await requireUser();
+        if (response) return response;
+        const body = await req.json();
+        if (!body.post_id) { await logRequest(400); return json({ error: "post_id required" }, 400); }
+        if (req.method === "POST") {
+          const { data, error } = await admin.from("post_likes").upsert({
+            user_id: user.id, post_id: body.post_id,
+          }, { onConflict: "user_id,post_id" }).select().maybeSingle();
+          if (error) throw error;
+          await logRequest(201);
+          return json({ data }, 201);
+        } else {
+          const { error } = await admin.from("post_likes").delete().eq("user_id", user.id).eq("post_id", body.post_id);
+          if (error) throw error;
+          await logRequest(200);
+          return json({ success: true });
+        }
+      }
       const postId = url.searchParams.get("post_id");
       let q = admin.from("post_likes").select("*").limit(500);
       if (postId) q = q.eq("post_id", postId);
@@ -186,8 +294,45 @@ Deno.serve(async (req) => {
       return json({ data, count: data?.length || 0 });
     }
 
+    // --- FOLLOWS ---
+    if (seg[1] === "follows") {
+      if (req.method === "POST" || req.method === "DELETE") {
+        const { user, response } = await requireUser();
+        if (response) return response;
+        const body = await req.json();
+        if (!body.following_id) { await logRequest(400); return json({ error: "following_id required" }, 400); }
+        if (req.method === "POST") {
+          const { data, error } = await admin.from("follows").upsert({
+            follower_id: user.id, following_id: body.following_id,
+          }, { onConflict: "follower_id,following_id" }).select().maybeSingle();
+          if (error) throw error;
+          await logRequest(201);
+          return json({ data }, 201);
+        } else {
+          const { error } = await admin.from("follows").delete().eq("follower_id", user.id).eq("following_id", body.following_id);
+          if (error) throw error;
+          await logRequest(200);
+          return json({ success: true });
+        }
+      }
+      await logRequest(405);
+      return json({ error: "Method not allowed" }, 405);
+    }
+
     // --- MESSAGES (sensitive: requires secret) ---
     if (seg[1] === "messages") {
+      if (req.method === "POST") {
+        const { user, response } = await requireUser();
+        if (response) return response;
+        const body = await req.json();
+        if (!body.receiver_id || !body.content) { await logRequest(400); return json({ error: "receiver_id and content required" }, 400); }
+        const { data, error } = await admin.from("messages").insert({
+          sender_id: user.id, receiver_id: body.receiver_id, content: body.content,
+        }).select().single();
+        if (error) throw error;
+        await logRequest(201);
+        return json({ data }, 201);
+      }
       const userId = url.searchParams.get("user_id");
       if (!userId) { await logRequest(400); return json({ error: "user_id required" }, 400); }
       const { data, error } = await admin.from("messages").select("*").or(`sender_id.eq.${userId},receiver_id.eq.${userId}`).order("created_at", { ascending: false }).limit(200);
