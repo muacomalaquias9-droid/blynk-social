@@ -173,14 +173,15 @@ Deno.serve(async (req) => {
         const { user, response } = await requireUser();
         if (response) return response;
         const body = await req.json();
-        if (!body.content && !body.image_url) {
-          await logRequest(400, "content or image_url required");
-          return json({ error: "content or image_url required" }, 400);
+        if (!body.content && !(Array.isArray(body.media_urls) && body.media_urls.length)) {
+          await logRequest(400, "content or media_urls required");
+          return json({ error: "content or media_urls required" }, 400);
         }
         const { data, error } = await admin.from("posts").insert({
           user_id: user.id,
           content: body.content || "",
-          image_url: body.image_url || null,
+          media_urls: body.media_urls || null,
+          visibility: body.visibility || "public",
         }).select().single();
         if (error) throw error;
         await logRequest(201);

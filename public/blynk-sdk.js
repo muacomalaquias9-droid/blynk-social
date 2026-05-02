@@ -88,7 +88,7 @@
       this.posts = {
         list: (limit = 50) => this._get(`/v1/posts?limit=${limit}`),
         get: (id) => this._get(`/v1/posts/${id}`),
-        create: (data) => this._writeOrQueue("POST", "/v1/posts", data),
+        create: (data) => this._writeOrQueue("POST", "/v1/posts", data), // { content, media_urls? }
         delete: (id) => this._writeOrQueue("DELETE", `/v1/posts/${id}`, null),
       };
       this.comments = {
