@@ -20,6 +20,10 @@
 //         POST   /v1/follows                { following_id }
 //         DELETE /v1/follows                { following_id }
 //         POST   /v1/messages               { receiver_id, content }
+//         POST   /v1/payments/reference      { amount, title?, plan_type?, customer? }
+//         GET    /v1/payments/:id/status
+//         GET    /v1/music, POST /v1/music, POST /v1/music/:id/play
+//         GET    /v1/stories, POST /v1/stories, DELETE /v1/stories/:id
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
@@ -27,7 +31,7 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, x-api-key, x-api-secret",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
 };
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -124,6 +128,97 @@ Deno.serve(async (req) => {
       return { user: null as any, response: json({ error: "Authorization Bearer <session_jwt> required" }, 401) };
     }
     return { user: u, response: null };
+  };
+
+
+  const createReferencePayment = async (userId: string, body: any) => {
+    const amount = Number(body.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return { response: json({ error: "amount must be a positive number" }, 400) };
+    }
+
+    const PLIQPAY_PUBLIC_KEY = Deno.env.get("PLIQPAY_API_KEY");
+    if (!PLIQPAY_PUBLIC_KEY) {
+      return { response: json({ error: "Payment provider is not configured" }, 503) };
+    }
+
+    const { data: profile } = await admin
+      .from("profiles")
+      .select("first_name, full_name, email, phone")
+      .eq("id", userId)
+      .maybeSingle();
+
+    const title = String(body.title || body.description || "Pagamento Blynk").slice(0, 120);
+    const planType = String(body.plan_type || body.type || "api_payment").slice(0, 40);
+    const externalId = `api_${userId}_${Date.now()}`;
+    const callbackUrl = `${SUPABASE_URL}/functions/v1/payment-webhook`;
+    const customer = body.customer || {};
+
+    const pliqResponse = await fetch("https://api.plinqpay.com/v1/transaction", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "api-key": PLIQPAY_PUBLIC_KEY },
+      body: JSON.stringify({
+        externalId,
+        callbackUrl,
+        method: "REFERENCE",
+        client: {
+          name: customer.name || profile?.full_name || profile?.first_name || "Cliente Blynk",
+          email: customer.email || profile?.email || "",
+          phone: customer.phone || profile?.phone || "+244900000000",
+        },
+        items: [{ title, price: amount, quantity: 1 }],
+        amount,
+      }),
+    });
+
+    const responseText = await pliqResponse.text();
+    if (!pliqResponse.ok) {
+      return { response: json({ error: `PlinqPay error [${pliqResponse.status}]`, details: responseText }, 502) };
+    }
+
+    let pliqData: any = {};
+    try { pliqData = JSON.parse(responseText); } catch {
+      return { response: json({ error: "Invalid payment provider response" }, 502) };
+    }
+
+    const paymentReference = pliqData.reference || pliqData.data?.reference || null;
+    const paymentEntity = pliqData.entity || pliqData.data?.entity || "01055";
+    const transactionId = pliqData.id || pliqData.data?.id || null;
+
+    const { data: subscription, error } = await admin
+      .from("verification_subscriptions")
+      .insert({
+        user_id: userId,
+        plan_type: planType,
+        amount,
+        status: "pending",
+        payment_reference: paymentReference,
+        external_id: externalId,
+        transaction_id: transactionId,
+        expires_at: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    return {
+      response: json({
+        success: true,
+        data: subscription,
+        payment: {
+          id: subscription.id,
+          status: subscription.status,
+          amount,
+          reference: paymentReference,
+          entity: paymentEntity,
+          transaction_id: transactionId,
+          expires_at: subscription.expires_at,
+          instructions: "Pague por Referência/Entidade no Multicaixa Express ou ATM.",
+        },
+        provider: pliqData,
+      }, 201),
+    };
   };
 
   try {
@@ -328,9 +423,15 @@ Deno.serve(async (req) => {
         const { user, response } = await requireUser();
         if (response) return response;
         const body = await req.json();
-        if (!body.receiver_id || !body.content) { await logRequest(400); return json({ error: "receiver_id and content required" }, 400); }
+        if (!body.receiver_id || (!body.content && !body.media_url)) { await logRequest(400); return json({ error: "receiver_id and content or media_url required" }, 400); }
         const { data, error } = await admin.from("messages").insert({
-          sender_id: user.id, receiver_id: body.receiver_id, content: body.content,
+          sender_id: user.id,
+          receiver_id: body.receiver_id,
+          content: body.content || "",
+          media_url: body.media_url || null,
+          message_type: body.message_type || (body.media_url ? "media" : "text"),
+          duration: body.duration || null,
+          view_once: body.view_once || false,
         }).select().single();
         if (error) throw error;
         await logRequest(201);
@@ -339,6 +440,137 @@ Deno.serve(async (req) => {
       const userId = url.searchParams.get("user_id");
       if (!userId) { await logRequest(400); return json({ error: "user_id required" }, 400); }
       const { data, error } = await admin.from("messages").select("*").or(`sender_id.eq.${userId},receiver_id.eq.${userId}`).order("created_at", { ascending: false }).limit(200);
+      if (error) throw error;
+      await logRequest(200);
+      return json({ data, count: data?.length || 0 });
+    }
+
+    // --- PAYMENTS (PliqPay reference/entity) ---
+    if (seg[1] === "payments") {
+      if (seg[2] === "reference" && req.method === "POST") {
+        const { user, response } = await requireUser();
+        if (response) return response;
+        const body = await req.json();
+        const result = await createReferencePayment(user.id, body);
+        await logRequest(result.response.status);
+        return result.response;
+      }
+
+      if (seg[3] === "status" && req.method === "GET") {
+        const { user, response } = await requireUser();
+        if (response) return response;
+        const { data, error } = await admin
+          .from("verification_subscriptions")
+          .select("id, amount, plan_type, status, payment_reference, transaction_id, external_id, paid_at, expires_at, created_at")
+          .eq("id", seg[2])
+          .eq("user_id", user.id)
+          .maybeSingle();
+        if (error) throw error;
+        if (!data) { await logRequest(404); return json({ error: "payment not found" }, 404); }
+        await logRequest(200);
+        return json({ data, payment: { ...data, reference: data.payment_reference, entity: "01055" } });
+      }
+
+      if (seg[2] === "check" && req.method === "POST") {
+        const { user, response } = await requireUser();
+        if (response) return response;
+        const body = await req.json();
+        if (!body.subscription_id && !body.payment_id) { await logRequest(400); return json({ error: "subscription_id or payment_id required" }, 400); }
+        const id = body.subscription_id || body.payment_id;
+        const { data, error } = await admin
+          .from("verification_subscriptions")
+          .select("id, amount, plan_type, status, payment_reference, transaction_id, external_id, paid_at, expires_at, created_at")
+          .eq("id", id)
+          .eq("user_id", user.id)
+          .maybeSingle();
+        if (error) throw error;
+        if (!data) { await logRequest(404); return json({ error: "payment not found" }, 404); }
+        await logRequest(200);
+        return json({ success: true, status: data.status, data, payment: { ...data, reference: data.payment_reference, entity: "01055" } });
+      }
+
+      await logRequest(404);
+      return json({ error: "Payments route not found" }, 404);
+    }
+
+    // --- MUSIC ---
+    if (seg[1] === "music") {
+      if (seg[2] && seg[3] === "play" && req.method === "POST") {
+        const { data: current, error: getError } = await admin.from("trending_music").select("play_count").eq("id", seg[2]).maybeSingle();
+        if (getError) throw getError;
+        if (!current) { await logRequest(404); return json({ error: "music not found" }, 404); }
+        const { data, error } = await admin.from("trending_music").update({ play_count: (current.play_count || 0) + 1 }).eq("id", seg[2]).select().single();
+        if (error) throw error;
+        await logRequest(200);
+        return json({ data });
+      }
+
+      if (req.method === "POST") {
+        const { user, response } = await requireUser();
+        if (response) return response;
+        const body = await req.json();
+        if (!body.name || !body.artist || !body.audio_url) { await logRequest(400); return json({ error: "name, artist and audio_url required" }, 400); }
+        const { data, error } = await admin.from("trending_music").insert({
+          name: String(body.name).slice(0, 120),
+          artist: String(body.artist).slice(0, 120),
+          audio_url: body.audio_url,
+          cover_url: body.cover_url || null,
+          duration: Number(body.duration || 0),
+          is_trending: body.is_trending ?? false,
+        }).select().single();
+        if (error) throw error;
+        await logRequest(201);
+        return json({ data }, 201);
+      }
+
+      const limit = Math.min(Number(url.searchParams.get("limit") || 50), 100);
+      let q = admin.from("trending_music").select("*").order("created_at", { ascending: false }).limit(limit);
+      if (url.searchParams.get("trending") === "true") q = q.eq("is_trending", true);
+      const { data, error } = await q;
+      if (error) throw error;
+      await logRequest(200);
+      return json({ data, count: data?.length || 0 });
+    }
+
+    // --- STORIES ---
+    if (seg[1] === "stories") {
+      if (!seg[2] && req.method === "POST") {
+        const { user, response } = await requireUser();
+        if (response) return response;
+        const body = await req.json();
+        if (!body.media_url || !body.media_type) { await logRequest(400); return json({ error: "media_url and media_type required" }, 400); }
+        const { data, error } = await admin.from("stories").insert({
+          user_id: user.id,
+          media_url: body.media_url,
+          media_type: body.media_type,
+          music_name: body.music_name || null,
+          music_artist: body.music_artist || null,
+          custom_music_url: body.custom_music_url || null,
+          expires_at: body.expires_at || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        }).select().single();
+        if (error) throw error;
+        await logRequest(201);
+        return json({ data }, 201);
+      }
+
+      if (seg[2] && req.method === "DELETE") {
+        const { user, response } = await requireUser();
+        if (response) return response;
+        const { error } = await admin.from("stories").delete().eq("id", seg[2]).eq("user_id", user.id);
+        if (error) throw error;
+        await logRequest(200);
+        return json({ success: true });
+      }
+
+      const limit = Math.min(Number(url.searchParams.get("limit") || 50), 100);
+      let q = admin
+        .from("stories")
+        .select("*, profiles:user_id(id, username, first_name, full_name, avatar_url, verified)")
+        .gt("expires_at", new Date().toISOString())
+        .order("created_at", { ascending: false })
+        .limit(limit);
+      if (url.searchParams.get("user_id")) q = q.eq("user_id", url.searchParams.get("user_id"));
+      const { data, error } = await q;
       if (error) throw error;
       await logRequest(200);
       return json({ data, count: data?.length || 0 });
