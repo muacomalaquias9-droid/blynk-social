@@ -83,7 +83,6 @@ const res = await fetch("${BASE_URL}/v1/auth/login", {
   headers: {
     "Content-Type": "application/json",
     "X-API-Key": "pk_live_xxx",
-    "X-API-Secret": "sk_live_xxx",
   },
   body: JSON.stringify({ email, password }),
 });
@@ -111,8 +110,13 @@ print_r($response['data']);`;
   // 1. Login com a tua conta Blynk (mesmo backend de auth)
   await blynk.auth.login("a@b.com", "password");
 
-  // 2. Publicar — funciona offline, fica em fila e envia quando voltar online
+  // 2. Publicar, mensagens, stories, música e pagamento — tudo com fila offline
   await blynk.posts.create({ content: "Olá mundo!" });
+  await blynk.messages.send("user-uuid", "Oi pelo SDK");
+  await blynk.stories.create({ media_url: "https://.../story.jpg", media_type: "image" });
+  await blynk.music.create({ name: "Minha música", artist: "Artista", audio_url: "https://.../audio.mp3", duration: 180 });
+  const pay = await blynk.payments.createReference(500, { title: "Plano", plan_type: "premium" });
+  console.log(pay.payment.entity, pay.payment.reference);
 
   // 3. Realtime — escuta novos posts em tempo real (WebSocket)
   blynk.realtime.on("posts",  (e) => console.log("post:", e));
