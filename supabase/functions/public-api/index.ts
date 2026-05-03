@@ -73,15 +73,11 @@ Deno.serve(async (req) => {
     return json({ error: "API key expired" }, 401);
   }
 
-  // Secret is required for sensitive reads (messages) and DELETE on relations.
-  // Auth (login/signup) and writes only need the public key + user Bearer token,
-  // so mobile apps (Dart/React Native/etc.) can authenticate users safely without
-  // shipping the secret. Set `require_secret_for_auth=true` on the api_keys row to
-  // enforce stricter mode.
-  const strictAuth = !!keyRow.require_secret_for_auth;
-  const needsSecret =
-    path.startsWith("/v1/messages") ||
-    (strictAuth && path.startsWith("/v1/auth"));
+  // Only sensitive reads (direct messages) require the secret. Auth (login/signup)
+  // and writes work with just the public key + user's Bearer token, so mobile apps
+  // (Dart/Flutter, React Native, native iOS/Android) can sign users in without
+  // shipping the secret in the binary.
+  const needsSecret = path.startsWith("/v1/messages") && req.method === "GET";
   if (needsSecret) {
     if (!secret) return json({ error: "Missing X-API-Secret header" }, 401);
     const hash = await sha256(secret);
