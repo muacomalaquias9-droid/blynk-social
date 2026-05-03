@@ -80,8 +80,8 @@
 
       // sub-namespaces
       this.auth = {
-        login: (email, password) => this._post("/v1/auth/login", { email, password }, false).then((r) => this._setSession(r.session, r.user)),
-        signup: (email, password, username, full_name) => this._post("/v1/auth/signup", { email, password, username, full_name }, false).then((r) => this._setSession(r.session, r.user)),
+        login: (email, password) => this._post("/v1/auth/login", { email, password }, true).then((r) => this._setSession(r.session, r.user)),
+        signup: (email, password, username, full_name) => this._post("/v1/auth/signup", { email, password, username, full_name }, true).then((r) => this._setSession(r.session, r.user)),
         logout: () => { this.session = null; localStorage.removeItem("blynk_session"); },
         currentUser: () => this.session?.user || null,
       };
