@@ -123,6 +123,16 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
       // Signaling channel
       const channel = supabase
         .channel(`call-${callId}`)
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'calls', filter: `id=eq.${callId}` },
+          ({ new: updatedCall }: any) => {
+            if (['ended', 'missed', 'rejected', 'completed'].includes(updatedCall?.status)) {
+              cleanup();
+              onEnd();
+            }
+          }
+        )
         .on('broadcast', { event: 'signal' }, async ({ payload }) => {
           // Skip our own signals
           if (payload?.from === user?.id) return;
@@ -237,6 +247,7 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
         if (pc.connectionState === 'connected') {
           setIsConnected(true);
           connectSoundRef.current?.play().catch(() => {});
+          supabase.from('calls').update({ status: 'ongoing' }).eq('id', callId).then(() => {});
         } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
           // Try to reconnect or end
           if (pc.connectionState === 'failed') {
@@ -244,8 +255,6 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
           }
         }
       };
-
-      await supabase.from('calls').update({ status: 'ongoing' }).eq('id', callId);
 
     } catch (error) {
       console.error('Call init error:', error);
