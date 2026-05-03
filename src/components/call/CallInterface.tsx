@@ -27,6 +27,7 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
   const channelRef = useRef<any>(null);
   const connectSoundRef = useRef<HTMLAudioElement | null>(null);
   const offerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const missedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingIceRef = useRef<RTCIceCandidateInit[]>([]);
 
   useEffect(() => {
@@ -64,6 +65,15 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
       if (callErr || !callRow) { onEnd(); return; }
 
       const isCaller = callRow.caller_id === user?.id;
+      if (isCaller) {
+        missedTimeoutRef.current = setTimeout(async () => {
+          if (peerConnectionRef.current?.connectionState !== 'connected') {
+            await supabase.from('calls').update({ status: 'missed', ended_at: new Date().toISOString() }).eq('id', callId);
+            cleanup();
+            onEnd();
+          }
+        }, 45_000);
+      }
 
       // Get user media with echo cancellation
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -123,6 +133,16 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
       // Signaling channel
       const channel = supabase
         .channel(`call-${callId}`)
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'calls', filter: `id=eq.${callId}` },
+          ({ new: updatedCall }: any) => {
+            if (['ended', 'missed', 'rejected', 'completed'].includes(updatedCall?.status)) {
+              cleanup();
+              onEnd();
+            }
+          }
+        )
         .on('broadcast', { event: 'signal' }, async ({ payload }) => {
           // Skip our own signals
           if (payload?.from === user?.id) return;
@@ -235,8 +255,13 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
 
       pc.onconnectionstatechange = () => {
         if (pc.connectionState === 'connected') {
+          if (missedTimeoutRef.current) {
+            clearTimeout(missedTimeoutRef.current);
+            missedTimeoutRef.current = null;
+          }
           setIsConnected(true);
           connectSoundRef.current?.play().catch(() => {});
+          supabase.from('calls').update({ status: 'ongoing' }).eq('id', callId).then(() => {});
         } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
           // Try to reconnect or end
           if (pc.connectionState === 'failed') {
@@ -244,8 +269,6 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
           }
         }
       };
-
-      await supabase.from('calls').update({ status: 'ongoing' }).eq('id', callId);
 
     } catch (error) {
       console.error('Call init error:', error);
@@ -257,6 +280,10 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
     if (offerIntervalRef.current) {
       clearInterval(offerIntervalRef.current);
       offerIntervalRef.current = null;
+    }
+    if (missedTimeoutRef.current) {
+      clearTimeout(missedTimeoutRef.current);
+      missedTimeoutRef.current = null;
     }
     localStreamRef.current?.getTracks().forEach(track => track.stop());
     peerConnectionRef.current?.close();

@@ -15,6 +15,11 @@ export default function IncomingCallNotification() {
   const [incomingCall, setIncomingCall] = useState<any>(null);
   const [caller, setCaller] = useState<any>(null);
 
+  const isFreshCall = (callData: any) => {
+    const startedAt = new Date(callData?.started_at || callData?.created_at || 0).getTime();
+    return Number.isFinite(startedAt) && Date.now() - startedAt < 45_000;
+  };
+
   useEffect(() => {
     if (!user) return;
 
@@ -45,16 +50,26 @@ export default function IncomingCallNotification() {
     };
 
     const loadExistingIncomingCall = async () => {
+      const cutoff = new Date(Date.now() - 45_000).toISOString();
+
+      await supabase
+        .from('calls')
+        .update({ status: 'missed', ended_at: new Date().toISOString() })
+        .eq('receiver_id', user.id)
+        .eq('status', 'calling')
+        .lt('started_at', cutoff);
+
       const { data } = await supabase
         .from('calls')
         .select('*')
         .eq('receiver_id', user.id)
         .eq('status', 'calling')
+        .gte('started_at', cutoff)
         .order('started_at', { ascending: false })
         .limit(1)
         .maybeSingle();
 
-      if (data) {
+      if (data && isFreshCall(data)) {
         await presentIncomingCall(data);
       }
     };
@@ -74,12 +89,12 @@ export default function IncomingCallNotification() {
         async (payload) => {
           const callData = payload.new as any;
 
-          if (payload.eventType === 'INSERT' && callData?.status === 'calling') {
+          if (payload.eventType === 'INSERT' && callData?.status === 'calling' && isFreshCall(callData)) {
             await presentIncomingCall(callData, true);
             return;
           }
 
-          if (payload.eventType === 'UPDATE' && callData?.status === 'calling') {
+          if (payload.eventType === 'UPDATE' && callData?.status === 'calling' && isFreshCall(callData)) {
             await presentIncomingCall(callData);
             return;
           }

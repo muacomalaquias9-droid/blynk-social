@@ -28,7 +28,15 @@ const endpoints = [
   { method: "POST", path: "/v1/follows", desc: "Segue um utilizador (Bearer)." },
   { method: "DELETE", path: "/v1/follows", desc: "Deixa de seguir (Bearer)." },
   { method: "GET",  path: "/v1/messages?user_id=", desc: "Mensagens do utilizador. Requer secret." },
-  { method: "POST", path: "/v1/messages", desc: "Envia mensagem privada (Bearer)." },
+  { method: "POST", path: "/v1/messages", desc: "Envia mensagem privada com texto/media (Bearer)." },
+  { method: "POST", path: "/v1/payments/reference", desc: "Cria pagamento PliqPay por entidade/referência (Bearer)." },
+  { method: "GET",  path: "/v1/payments/:id/status", desc: "Consulta estado do pagamento por referência (Bearer)." },
+  { method: "GET",  path: "/v1/music", desc: "Lista músicas disponíveis." },
+  { method: "POST", path: "/v1/music", desc: "Regista música externa no Blynk (Bearer)." },
+  { method: "POST", path: "/v1/music/:id/play", desc: "Incrementa reprodução de uma música." },
+  { method: "GET",  path: "/v1/stories", desc: "Lista stories ativos." },
+  { method: "POST", path: "/v1/stories", desc: "Cria story com media e música opcional (Bearer)." },
+  { method: "DELETE", path: "/v1/stories/:id", desc: "Elimina story próprio (Bearer)." },
   { method: "GET",  path: "/v1/stats", desc: "Estatísticas globais (posts, users, comments)." },
   { method: "GET",  path: "/v1/realtime/info", desc: "Devolve URL WebSocket + chave para o SDK realtime." },
 ];
@@ -75,7 +83,6 @@ const res = await fetch("${BASE_URL}/v1/auth/login", {
   headers: {
     "Content-Type": "application/json",
     "X-API-Key": "pk_live_xxx",
-    "X-API-Secret": "sk_live_xxx",
   },
   body: JSON.stringify({ email, password }),
 });
@@ -103,8 +110,13 @@ print_r($response['data']);`;
   // 1. Login com a tua conta Blynk (mesmo backend de auth)
   await blynk.auth.login("a@b.com", "password");
 
-  // 2. Publicar — funciona offline, fica em fila e envia quando voltar online
+  // 2. Publicar, mensagens, stories, música e pagamento — tudo com fila offline
   await blynk.posts.create({ content: "Olá mundo!" });
+  await blynk.messages.send("user-uuid", "Oi pelo SDK");
+  await blynk.stories.create({ media_url: "https://.../story.jpg", media_type: "image" });
+  await blynk.music.create({ name: "Minha música", artist: "Artista", audio_url: "https://.../audio.mp3", duration: 180 });
+  const pay = await blynk.payments.createReference(500, { title: "Plano", plan_type: "premium" });
+  console.log(pay.payment.entity, pay.payment.reference);
 
   // 3. Realtime — escuta novos posts em tempo real (WebSocket)
   blynk.realtime.on("posts",  (e) => console.log("post:", e));
@@ -121,7 +133,28 @@ window.addEventListener("online",  () => console.log("a sincronizar fila..."));
 // Esta chamada NUNCA falha por falta de internet:
 await blynk.likes.like("post-uuid");
 await blynk.comments.create("post-uuid", "Excelente!");
+await blynk.messages.send("user-uuid", "Mensagem offline");
+await blynk.payments.createReference(500, { title: "Compra" });
 // Em segundo plano, a fila é drenada quando a ligação voltar.`;
+
+
+  const paymentExample = `// Criar pagamento por Entidade/Referência (PliqPay)
+const res = await fetch("${BASE_URL}/v1/payments/reference", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "X-API-Key": "pk_live_xxx",
+    "Authorization": "Bearer <session_jwt>"
+  },
+  body: JSON.stringify({
+    amount: 500,
+    title: "Plano Premium",
+    plan_type: "premium",
+    customer: { name: "Cliente", phone: "+244900000000" }
+  }),
+});
+const { payment } = await res.json();
+console.log(payment.entity, payment.reference);`;
 
   const realtimeExample = `// Realtime usa WebSocket sobre Supabase Realtime.
 // O SDK trata da ligação por ti, mas se preferires
@@ -243,6 +276,11 @@ supa.channel("any").on("postgres_changes",
           <div>
             <h3 className="text-sm font-medium mb-2">Login externo</h3>
             <CodeBlock lang="javascript" code={loginExample} />
+          </div>
+
+          <div>
+            <h3 className="text-sm font-medium mb-2">Pagamento por referência</h3>
+            <CodeBlock lang="javascript" code={paymentExample} />
           </div>
 
           <div>

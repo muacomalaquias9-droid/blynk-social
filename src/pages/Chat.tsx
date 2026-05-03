@@ -540,6 +540,11 @@ export default function Chat() {
   const startCall = async (type: 'voice' | 'video') => {
     if (!user || !friendId) return;
 
+    if (!isOnline) {
+      toast.error('Este usuário está offline agora');
+      return;
+    }
+
     try {
       const mediaPreview = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -557,6 +562,15 @@ export default function Chat() {
     }
 
     const activeStatuses = ['calling', 'accepted', 'ongoing'];
+    const staleCutoff = new Date(Date.now() - 45_000).toISOString();
+
+    await supabase
+      .from('calls')
+      .update({ status: 'missed', ended_at: new Date().toISOString() })
+      .in('status', ['calling', 'accepted'])
+      .is('ended_at', null)
+      .lt('started_at', staleCutoff);
+
     const [{ data: myCalls }, { data: friendCalls }] = await Promise.all([
       supabase
         .from('calls')
@@ -564,6 +578,7 @@ export default function Chat() {
         .or(`caller_id.eq.${user.id},receiver_id.eq.${user.id}`)
         .in('status', activeStatuses)
         .is('ended_at', null)
+        .gte('started_at', staleCutoff)
         .limit(1),
       supabase
         .from('calls')
@@ -571,6 +586,7 @@ export default function Chat() {
         .or(`caller_id.eq.${friendId},receiver_id.eq.${friendId}`)
         .in('status', activeStatuses)
         .is('ended_at', null)
+        .gte('started_at', staleCutoff)
         .limit(1),
     ]);
 
