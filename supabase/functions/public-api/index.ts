@@ -111,6 +111,12 @@ Deno.serve(async (req) => {
     await admin.from("api_keys").update({ last_used_at: new Date().toISOString() }).eq("id", keyRow.id);
   };
 
+  const requireScope = async (scope: string) => {
+    if (Array.isArray(keyRow.scopes) && keyRow.scopes.includes(scope)) return null;
+    await logRequest(403, `Missing scope: ${scope}`);
+    return json({ error: "API key missing permission", required_scope: scope }, 403);
+  };
+
   // Resolve current user from Authorization Bearer header (optional, required for writes)
   const getCurrentUser = async (): Promise<{ id: string } | null> => {
     const auth = req.headers.get("authorization") || req.headers.get("Authorization");
@@ -337,6 +343,8 @@ Deno.serve(async (req) => {
     // --- COMMENTS ---
     if (seg[1] === "comments") {
       if (req.method === "POST") {
+        const scopeError = await requireScope("write:messages");
+        if (scopeError) return scopeError;
         const { user, response } = await requireUser();
         if (response) return response;
         const body = await req.json();
@@ -448,6 +456,8 @@ Deno.serve(async (req) => {
     // --- PAYMENTS (PliqPay reference/entity) ---
     if (seg[1] === "payments") {
       if (seg[2] === "reference" && req.method === "POST") {
+        const scopeError = await requireScope("payments:reference");
+        if (scopeError) return scopeError;
         const { user, response } = await requireUser();
         if (response) return response;
         const body = await req.json();
@@ -506,6 +516,8 @@ Deno.serve(async (req) => {
       }
 
       if (req.method === "POST") {
+        const scopeError = await requireScope("write:music");
+        if (scopeError) return scopeError;
         const { user, response } = await requireUser();
         if (response) return response;
         const body = await req.json();
@@ -535,6 +547,8 @@ Deno.serve(async (req) => {
     // --- STORIES ---
     if (seg[1] === "stories") {
       if (!seg[2] && req.method === "POST") {
+        const scopeError = await requireScope("write:stories");
+        if (scopeError) return scopeError;
         const { user, response } = await requireUser();
         if (response) return response;
         const body = await req.json();
