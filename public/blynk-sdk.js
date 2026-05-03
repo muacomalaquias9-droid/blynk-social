@@ -106,7 +106,24 @@
       };
       this.messages = {
         list: (userId) => this._get(`/v1/messages?user_id=${userId}`),
-        send: (receiverId, content) => this._writeOrQueue("POST", "/v1/messages", { receiver_id: receiverId, content }),
+        send: (receiverId, content, options = {}) => this._writeOrQueue("POST", "/v1/messages", { receiver_id: receiverId, content, ...options }),
+      };
+      this.payments = {
+        createReference: (amount, options = {}) => this._writeOrQueue("POST", "/v1/payments/reference", { amount, ...options }),
+        status: (paymentId) => this._get(`/v1/payments/${paymentId}/status`),
+        check: (paymentId) => this._post("/v1/payments/check", { payment_id: paymentId }, false),
+      };
+      this.music = {
+        list: (limit = 50) => this._get(`/v1/music?limit=${limit}`),
+        trending: (limit = 50) => this._get(`/v1/music?trending=true&limit=${limit}`),
+        create: (data) => this._writeOrQueue("POST", "/v1/music", data),
+        play: (id) => this._writeOrQueue("POST", `/v1/music/${id}/play`, {}),
+      };
+      this.stories = {
+        list: (limit = 50) => this._get(`/v1/stories?limit=${limit}`),
+        byUser: (userId, limit = 50) => this._get(`/v1/stories?user_id=${userId}&limit=${limit}`),
+        create: (data) => this._writeOrQueue("POST", "/v1/stories", data),
+        delete: (id) => this._writeOrQueue("DELETE", `/v1/stories/${id}`, null),
       };
       this.profiles = {
         list: (limit = 50) => this._get(`/v1/profiles?limit=${limit}`),
@@ -157,7 +174,7 @@
     async _request(method, path, body) {
       const r = await fetch(this.apiUrl + path, {
         method,
-        headers: this._headers(true),
+        headers: this._headers(method === "GET"),
         body: body ? JSON.stringify(body) : undefined,
       });
       const j = await r.json().catch(() => ({}));
