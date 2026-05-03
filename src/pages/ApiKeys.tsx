@@ -31,6 +31,12 @@ const ALL_SCOPES = [
   { id: "read:comments", label: "Ler comentários" },
   { id: "read:likes", label: "Ler curtidas" },
   { id: "read:messages", label: "Ler mensagens (sensível)" },
+  { id: "write:messages", label: "Enviar mensagens" },
+  { id: "read:music", label: "Ler músicas" },
+  { id: "write:music", label: "Criar músicas" },
+  { id: "read:stories", label: "Ler stories" },
+  { id: "write:stories", label: "Criar stories" },
+  { id: "payments:reference", label: "Pagamentos referência" },
   { id: "auth:login", label: "Login externo" },
   { id: "auth:signup", label: "Cadastro externo" },
 ];
@@ -57,7 +63,7 @@ export default function ApiKeys() {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [scopes, setScopes] = useState<string[]>(["read:posts", "read:profiles", "read:users"]);
+  const [scopes, setScopes] = useState<string[]>(["read:posts", "read:profiles", "read:users", "read:music", "read:stories", "write:messages", "payments:reference"]);
   const [creating, setCreating] = useState(false);
   const [createdSecret, setCreatedSecret] = useState<{ pub: string; sec: string } | null>(null);
   const [showSecret, setShowSecret] = useState(false);
