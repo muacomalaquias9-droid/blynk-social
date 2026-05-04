@@ -12,7 +12,7 @@ interface Profile {
 }
 
 export const TopBar = () => {
-  const [profile, setProfile] = useState<Profile | null>(null);
+  const [, setProfile] = useState<Profile | null>(null);
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [, setFriendRequests] = useState(0);
   const [notifications, setNotifications] = useState(0);
