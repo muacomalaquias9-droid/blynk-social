@@ -91,16 +91,35 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
         localVideoRef.current.srcObject = stream;
       }
 
-      // ICE servers for NAT traversal
+      // ICE servers for NAT traversal — STUN + free public TURN (required when
+      // peers are on different networks / mobile carriers / behind symmetric NAT)
       const configuration: RTCConfiguration = {
         iceServers: [
           { urls: 'stun:stun.l.google.com:19302' },
           { urls: 'stun:stun1.l.google.com:19302' },
-          { urls: 'stun:stun2.l.google.com:19302' },
-          { urls: 'stun:stun3.l.google.com:19302' },
-          { urls: 'stun:stun4.l.google.com:19302' },
+          { urls: 'stun:global.stun.twilio.com:3478' },
+          {
+            urls: [
+              'turn:openrelay.metered.ca:80',
+              'turn:openrelay.metered.ca:443',
+              'turn:openrelay.metered.ca:443?transport=tcp',
+              'turns:openrelay.metered.ca:443?transport=tcp',
+            ],
+            username: 'openrelayproject',
+            credential: 'openrelayproject',
+          },
+          {
+            urls: [
+              'turn:relay1.expressturn.com:3478',
+            ],
+            username: 'ef9HW2PE6T0CSPL5MX',
+            credential: 'YzVRJv7K7FkW3tWJ',
+          },
         ],
         iceCandidatePoolSize: 10,
+        iceTransportPolicy: 'all',
+        bundlePolicy: 'max-bundle',
+        rtcpMuxPolicy: 'require',
       };
 
       const pc = new RTCPeerConnection(configuration);
@@ -112,21 +131,30 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
       });
 
       // Handle remote stream - route to separate audio/video elements
+      // CRITICAL: never attach the remote stream to the local <video> (would echo
+      // our own voice). Always route audio to a dedicated muted-from-self <audio>.
       pc.ontrack = (event) => {
-        const remoteStream = event.streams[0];
+        const [remoteStream] = event.streams;
         if (!remoteStream) return;
 
-        if (event.track.kind === 'audio') {
-          // Route remote audio to audio element (NOT back to local user)
-          if (remoteAudioRef.current) {
-            remoteAudioRef.current.srcObject = remoteStream;
-            remoteAudioRef.current.volume = 1.0;
-            remoteAudioRef.current.play().catch(console.error);
-          }
+        if (event.track.kind === 'audio' && remoteAudioRef.current) {
+          // Build a clean audio-only stream so video element never plays audio
+          const audioOnly = new MediaStream(remoteStream.getAudioTracks());
+          remoteAudioRef.current.srcObject = audioOnly;
+          remoteAudioRef.current.muted = false;
+          remoteAudioRef.current.volume = 1.0;
+          // Some browsers need an explicit play() after user gesture
+          remoteAudioRef.current.play().catch((err) => {
+            console.warn('Remote audio play blocked, retrying on next tick', err);
+            setTimeout(() => remoteAudioRef.current?.play().catch(() => {}), 300);
+          });
         }
 
         if (event.track.kind === 'video' && remoteVideoRef.current) {
-          remoteVideoRef.current.srcObject = remoteStream;
+          const videoOnly = new MediaStream(remoteStream.getVideoTracks());
+          remoteVideoRef.current.srcObject = videoOnly;
+          remoteVideoRef.current.muted = true; // audio comes from <audio>, never from video
+          remoteVideoRef.current.play().catch(() => {});
         }
       };
 
@@ -261,6 +289,8 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
           }
           setIsConnected(true);
           connectSoundRef.current?.play().catch(() => {});
+          // Re-trigger remote audio play once connected (mobile autoplay quirk)
+          remoteAudioRef.current?.play().catch(() => {});
           supabase.from('calls').update({ status: 'ongoing' }).eq('id', callId).then(() => {});
         } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
           // Try to reconnect or end
@@ -333,12 +363,12 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
   return (
     <div className="fixed inset-0 z-50 bg-gradient-to-b from-gray-900 to-black flex flex-col">
       {/* Hidden audio element for remote voice - CRITICAL: autoPlay + playsInline */}
-      <audio ref={remoteAudioRef} autoPlay playsInline style={{ display: 'none' }} />
+      <audio ref={remoteAudioRef} autoPlay playsInline controls={false} style={{ display: 'none' }} />
       
       <div className="flex-1 relative flex items-center justify-center">
         {isVideo ? (
           <>
-            <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-full object-cover" />
+            <video ref={remoteVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
             <motion.div 
               initial={{ scale: 0.8, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
