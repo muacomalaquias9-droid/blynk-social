@@ -1,11 +1,9 @@
 import { Link, useLocation } from "react-router-dom";
-import { Home, Users, MessageSquare, Video, Bell, Search, Plus } from "lucide-react";
+import { Bell, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
-import { cn } from "@/lib/utils";
-import SideMenu from "@/components/SideMenu";
 import { Logo2026 } from "@/components/Logo2026";
 
 interface Profile {
@@ -14,11 +12,11 @@ interface Profile {
 }
 
 export const TopBar = () => {
-  const [profile, setProfile] = useState<Profile | null>(null);
+  const [, setProfile] = useState<Profile | null>(null);
   const [unreadMessages, setUnreadMessages] = useState(0);
-  const [friendRequests, setFriendRequests] = useState(0);
+  const [, setFriendRequests] = useState(0);
   const [notifications, setNotifications] = useState(0);
-  const location = useLocation();
+  useLocation();
 
   useEffect(() => {
     loadProfile();
@@ -65,77 +63,43 @@ export const TopBar = () => {
     setNotifications(notifCount || 0);
   };
 
-  const navItems = [
-    { to: '/feed', icon: Home, badge: 0 },
-    { to: '/friends', icon: Users, badge: friendRequests },
-    { to: '/messages', icon: MessageSquare, badge: unreadMessages },
-    { to: '/videos', icon: Video, badge: 0 },
-    { to: '/notifications', icon: Bell, badge: notifications },
-  ];
-
-  const isActive = (path: string) => location.pathname === path;
-
   return (
-    <header className="fixed top-0 left-0 right-0 z-50 bg-card border-b border-border">
-      <div className="flex items-center justify-between h-14 px-3 max-w-screen-2xl mx-auto">
-        {/* Logo 2026 */}
-        <Link to="/feed" className="flex items-center">
-          <Logo2026 size="md" />
+    <header
+      className="fixed top-0 left-0 right-0 z-50 safe-area-top"
+      style={{
+        background: 'linear-gradient(180deg, #1a1a3e 0%, #232352 100%)',
+        boxShadow: '0 4px 16px rgba(26,26,62,0.25)',
+      }}
+    >
+      <div className="flex items-center justify-between h-14 px-4 max-w-screen-2xl mx-auto">
+        <Link to="/feed" className="flex items-center gap-2">
+          <Logo2026 size="sm" />
+          <span className="text-white font-bold text-xl tracking-tight" style={{ fontFamily: 'Outfit, sans-serif' }}>
+            Blynk
+          </span>
         </Link>
 
-        {/* Ações do topo */}
         <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-10 w-10 rounded-full bg-muted hover:bg-muted/80"
-            asChild
-          >
-            <Link to="/create">
-              <Plus className="h-5 w-5" />
-            </Link>
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-10 w-10 rounded-full bg-muted hover:bg-muted/80"
-          >
-            <Search className="h-5 w-5" />
-          </Button>
-          <SideMenu />
-        </div>
-      </div>
-
-      {/* Navegação principal */}
-      <div className="border-b border-border bg-card">
-        <div className="flex items-center justify-around h-12 max-w-screen-2xl mx-auto">
-          {navItems.map(({ to, icon: Icon, badge }) => (
-            <Link
-              key={to}
-              to={to}
-              className={cn(
-                "flex items-center justify-center flex-1 h-full relative transition-colors",
-                isActive(to) 
-                  ? "text-primary" 
-                  : "text-muted-foreground hover:bg-muted/50"
-              )}
-            >
-              <div className="relative">
-                <Icon className="h-6 w-6" strokeWidth={isActive(to) ? 2.5 : 2} />
-                {badge > 0 && (
-                  <Badge 
-                    variant="destructive" 
-                    className="absolute -top-2 -right-2 h-5 min-w-[20px] flex items-center justify-center px-1 text-xs rounded-full"
-                  >
-                    {badge > 99 ? '99+' : badge}
-                  </Badge>
-                )}
-              </div>
-              {isActive(to) && (
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
+          <Button asChild variant="ghost" size="icon" className="h-10 w-10 rounded-full text-white hover:bg-white/10 relative">
+            <Link to="/notifications" aria-label="Notificações">
+              <Bell className="h-5 w-5" />
+              {notifications > 0 && (
+                <Badge variant="destructive" className="absolute top-1 right-1 h-4 min-w-[16px] px-1 text-[10px] rounded-full">
+                  {notifications > 9 ? '9+' : notifications}
+                </Badge>
               )}
             </Link>
-          ))}
+          </Button>
+          <Button asChild variant="ghost" size="icon" className="h-10 w-10 rounded-full text-white hover:bg-white/10 relative">
+            <Link to="/messages" aria-label="Mensagens">
+              <MessageSquare className="h-5 w-5" />
+              {unreadMessages > 0 && (
+                <Badge variant="destructive" className="absolute top-1 right-1 h-4 min-w-[16px] px-1 text-[10px] rounded-full">
+                  {unreadMessages > 9 ? '9+' : unreadMessages}
+                </Badge>
+              )}
+            </Link>
+          </Button>
         </div>
       </div>
     </header>
