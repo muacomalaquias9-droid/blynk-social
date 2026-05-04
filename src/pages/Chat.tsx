@@ -759,7 +759,7 @@ export default function Chat() {
   };
 
   return (
-    <div className="fixed inset-0 flex flex-col bg-background overflow-hidden">
+    <div className="fixed inset-0 flex flex-col bg-background overflow-hidden" style={{ height: '100dvh' }}>
       {/* Native App Chat Header */}
       <header className="flex-shrink-0 z-50 app-header safe-area-top px-2 py-2">
         <div className="flex items-center gap-3 w-full">
