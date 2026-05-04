@@ -1102,7 +1102,10 @@ export default function Chat() {
               value={editingMessage ? editText : newMessage}
               onChange={(e) => editingMessage ? setEditText(e.target.value) : handleTyping(e.target.value)}
               placeholder="Escreva uma mensagem..."
-              className="h-11 rounded-full bg-muted/60 border-0 px-5 pr-14 text-[15px] focus-visible:ring-1 focus-visible:ring-primary/30 placeholder:text-muted-foreground/50"
+              className="h-11 rounded-full bg-muted/60 border-0 px-5 pr-14 text-[16px] focus-visible:ring-1 focus-visible:ring-primary/30 placeholder:text-muted-foreground/50"
+              style={{ fontSize: '16px' }}
+              enterKeyHint="send"
+              autoComplete="off"
             />
             <input
               ref={imageInputRef}
