@@ -75,6 +75,7 @@ export default function Chat() {
   const [wallpaper, setWallpaper] = useState<string>('');
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -240,7 +241,9 @@ export default function Chat() {
   }, [loading]);
 
   const scrollToBottom = () => {
-    if (messagesEndRef.current) {
+    if (messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTo({ top: messagesContainerRef.current.scrollHeight, behavior: 'smooth' });
+    } else if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   };
@@ -884,6 +887,7 @@ export default function Chat() {
 
       {/* Messages Area */}
       <div 
+        ref={messagesContainerRef}
         className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain native-scroll [overflow-anchor:none]"
         style={{
           backgroundImage: wallpaper ? `url(${wallpaper})` : 'none',
