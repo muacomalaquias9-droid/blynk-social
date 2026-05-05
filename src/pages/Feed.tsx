@@ -23,7 +23,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import PostOptionsSheet from "@/components/PostOptionsSheet";
 import { playLikeSound, playClickSound } from "@/utils/soundEffects";
 import { useRateLimiting } from "@/hooks/useRateLimiting";
-import { Logo2026 } from "@/components/Logo2026";
 import BottomNav from "@/components/BottomNav";
 import { useContentProtection } from "@/hooks/useContentProtection";
 
