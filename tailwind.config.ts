@@ -57,6 +57,13 @@ export default {
           received: "hsl(var(--chat-bubble-received))",
         },
         online: "hsl(var(--online-indicator))",
+        mobile: {
+          header: "hsl(var(--mobile-header))",
+          "header-soft": "hsl(var(--mobile-header-soft))",
+          "header-foreground": "hsl(var(--mobile-header-foreground))",
+          surface: "hsl(var(--mobile-surface))",
+          pill: "hsl(var(--mobile-pill))",
+        },
       },
       borderRadius: {
         lg: "var(--radius)",
