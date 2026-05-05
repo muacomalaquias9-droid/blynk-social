@@ -5,6 +5,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { motion } from 'framer-motion';
+import { playConnectSound, playHangupSound, startCallingSound, stopCallingSound } from '@/utils/callSounds';
 
 interface CallInterfaceProps {
   callId: string;
@@ -19,19 +20,19 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
   const [isConnected, setIsConnected] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
   const [remoteUser, setRemoteUser] = useState<any>(null);
+  const [connectionLabel, setConnectionLabel] = useState('Conectando...');
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const channelRef = useRef<any>(null);
-  const connectSoundRef = useRef<HTMLAudioElement | null>(null);
   const offerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const missedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingIceRef = useRef<RTCIceCandidateInit[]>([]);
 
   useEffect(() => {
-    connectSoundRef.current = new Audio('/sounds/connect.mp3');
     loadCallData();
     initCall();
     return () => cleanup();
