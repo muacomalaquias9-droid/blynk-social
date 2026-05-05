@@ -67,6 +67,7 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
 
       const isCaller = callRow.caller_id === user?.id;
       if (isCaller) {
+        startCallingSound();
         missedTimeoutRef.current = setTimeout(async () => {
           if (peerConnectionRef.current?.connectionState !== 'connected') {
             await supabase.from('calls').update({ status: 'missed', ended_at: new Date().toISOString() }).eq('id', callId);
@@ -289,14 +290,19 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
             missedTimeoutRef.current = null;
           }
           setIsConnected(true);
-          connectSoundRef.current?.play().catch(() => {});
+          stopCallingSound();
+          playConnectSound();
+          setConnectionLabel('Ligação segura');
           // Re-trigger remote audio play once connected (mobile autoplay quirk)
           remoteAudioRef.current?.play().catch(() => {});
           supabase.from('calls').update({ status: 'ongoing' }).eq('id', callId).then(() => {});
         } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-          // Try to reconnect or end
+          setConnectionLabel(pc.connectionState === 'failed' ? 'A reconectar...' : 'Sinal instável...');
           if (pc.connectionState === 'failed') {
-            endCall();
+            pc.restartIce?.();
+            reconnectTimeoutRef.current = setTimeout(() => {
+              if (peerConnectionRef.current?.connectionState !== 'connected') endCall();
+            }, 8000);
           }
         }
       };
@@ -316,6 +322,11 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
       clearTimeout(missedTimeoutRef.current);
       missedTimeoutRef.current = null;
     }
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+    stopCallingSound();
     localStreamRef.current?.getTracks().forEach(track => track.stop());
     peerConnectionRef.current?.close();
     if (channelRef.current) supabase.removeChannel(channelRef.current);
@@ -345,8 +356,8 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
       payload: { type: 'end-call', from: user?.id },
     });
     
-    const hangupSound = new Audio('/sounds/hangup.mp3');
-    hangupSound.play().catch(() => {});
+    stopCallingSound();
+    playHangupSound();
     
     await supabase.from('calls').update({ status: 'ended', ended_at: new Date().toISOString() }).eq('id', callId);
     cleanup();
