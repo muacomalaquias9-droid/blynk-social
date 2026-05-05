@@ -219,22 +219,29 @@ export default function Friends() {
     .slice(0, 15);
 
   return (
-    <MainLayout title="Explorar">
-      <div className="max-w-2xl mx-auto pb-24">
+    <MainLayout>
+      <div className="h-full max-w-2xl mx-auto pb-24 bg-mobile-surface overflow-y-auto overscroll-contain native-scroll">
         {/* Liquid Glass Header */}
-        <div className="sticky top-0 z-20 bg-background/70 backdrop-blur-[40px] saturate-[1.8] border-b border-border/20">
+        <div className="sticky top-0 z-20 bg-mobile-header text-mobile-header-foreground safe-area-top shadow-lg shadow-mobile-header/20">
+          <div className="px-4 pt-3 pb-1 flex items-center justify-between">
+            <h1 className="font-display text-[22px] font-extrabold tracking-normal">Explorar</h1>
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-mobile-header-foreground/10">
+              <div className="h-2 w-2 rounded-full bg-success animate-pulse" />
+              <span className="text-xs font-semibold">{onlineFriendsCount} online</span>
+            </div>
+          </div>
           <div className="px-4 py-3">
             <div className="relative">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground/60 pointer-events-none" />
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-mobile-header-foreground/65 pointer-events-none" />
               <Input
                 type="text"
                 placeholder="Pesquisar..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-12 bg-muted/40 border-0 rounded-2xl h-11 text-[15px] focus-visible:ring-1 focus-visible:ring-primary/30 placeholder:text-muted-foreground/50"
+                className="pl-12 bg-mobile-header-foreground/12 border-0 rounded-2xl h-11 text-[16px] text-mobile-header-foreground focus-visible:ring-1 focus-visible:ring-mobile-header-foreground/35 placeholder:text-mobile-header-foreground/55"
               />
               {searchQuery && (
-                <Button variant="ghost" size="icon" className="absolute right-2 top-1/2 -translate-y-1/2 h-7 w-7 rounded-full" onClick={() => setSearchQuery('')}>
+                <Button variant="ghost" size="icon" className="absolute right-2 top-1/2 -translate-y-1/2 h-7 w-7 rounded-full text-mobile-header-foreground hover:bg-mobile-header-foreground/10" onClick={() => setSearchQuery('')}>
                   <X className="h-3.5 w-3.5" />
                 </Button>
               )}
@@ -243,13 +250,9 @@ export default function Friends() {
 
           {/* Threads-style pill stats */}
           <div className="flex items-center gap-2 px-4 pb-3">
-            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/10 rounded-full">
-              <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
-              <span className="text-xs font-semibold text-green-600 dark:text-green-400">{onlineFriendsCount} online</span>
-            </div>
-            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-muted/50 rounded-full">
-              <Users className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="text-xs font-semibold text-muted-foreground">{friends.length} amigos</span>
+            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-mobile-header-foreground/10 rounded-full">
+              <Users className="h-3.5 w-3.5 text-mobile-header-foreground/75" />
+              <span className="text-xs font-semibold text-mobile-header-foreground/80">{friends.length} amigos</span>
             </div>
           </div>
         </div>
