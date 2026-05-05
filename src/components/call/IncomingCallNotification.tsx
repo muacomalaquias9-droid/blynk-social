@@ -171,17 +171,22 @@ export default function IncomingCallNotification() {
   if (!incomingCall || !caller) return null;
 
   return (
-    <div className="fixed inset-0 bg-background/95 backdrop-blur-sm z-[100] flex items-center justify-center p-6 animate-fade-in">
-      <div className="bg-card rounded-3xl p-8 max-w-sm w-full shadow-2xl border border-border animate-scale-in">
-        <div className="text-center mb-8">
-          <Avatar className="h-24 w-24 mx-auto mb-4 ring-4 ring-primary/20">
+    <div className="fixed inset-0 bg-mobile-header z-[100] flex items-center justify-center p-6 animate-fade-in text-mobile-header-foreground overflow-hidden">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_22%,hsl(var(--mobile-header-soft)),hsl(var(--mobile-header))_50%,hsl(var(--background))_145%)]" />
+      <div className="relative w-full max-w-sm animate-scale-in text-center">
+        <div className="mb-10">
+          <div className="relative mx-auto mb-6 h-32 w-32">
+            <div className="absolute -inset-6 rounded-full border border-mobile-header-foreground/20 animate-ping" />
+            <div className="absolute -inset-11 rounded-full border border-mobile-header-foreground/10" />
+          <Avatar className="relative h-32 w-32 mx-auto ring-4 ring-mobile-header-foreground/20 shadow-2xl">
             <AvatarImage src={caller.avatar_url || undefined} />
-            <AvatarFallback className="bg-primary text-primary-foreground text-3xl">
+            <AvatarFallback className="bg-mobile-header-soft text-mobile-header-foreground text-4xl">
               {caller.first_name.charAt(0).toUpperCase()}
             </AvatarFallback>
           </Avatar>
-          <h2 className="text-2xl font-bold mb-2">{caller.first_name}</h2>
-          <p className="text-muted-foreground flex items-center justify-center gap-2">
+          </div>
+          <h2 className="text-3xl font-extrabold mb-2">{caller.first_name}</h2>
+          <p className="text-mobile-header-foreground/70 flex items-center justify-center gap-2 font-medium">
             {incomingCall.call_type === 'video' ? (
               <>
                 <Video className="h-4 w-4" />
@@ -196,23 +201,23 @@ export default function IncomingCallNotification() {
           </p>
         </div>
 
-        <div className="flex gap-4">
+        <div className="flex items-center justify-center gap-10">
           <Button
             variant="destructive"
-            size="lg"
-            className="flex-1 h-16 rounded-full"
+            size="icon"
+            className="h-20 w-20 rounded-full shadow-2xl shadow-destructive/30"
             onClick={rejectCall}
+            aria-label="Recusar chamada"
           >
-            <PhoneOff className="h-6 w-6 mr-2" />
-            Recusar
+            <PhoneOff className="h-8 w-8" />
           </Button>
           <Button
-            size="lg"
-            className="flex-1 h-16 rounded-full bg-green-500 hover:bg-green-600"
+            size="icon"
+            className="h-20 w-20 rounded-full bg-success text-success-foreground hover:bg-success/90 shadow-2xl shadow-success/30"
             onClick={acceptCall}
+            aria-label="Atender chamada"
           >
-            <Phone className="h-6 w-6 mr-2" />
-            Atender
+            <Phone className="h-8 w-8" />
           </Button>
         </div>
       </div>
