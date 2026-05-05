@@ -14,7 +14,6 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import VerificationBadge from '@/components/VerificationBadge';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
-import { cn } from '@/lib/utils';
 
 interface Profile {
   id: string;
