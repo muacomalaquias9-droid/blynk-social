@@ -759,16 +759,16 @@ export default function Chat() {
   };
 
   return (
-    <div className="fixed inset-0 flex flex-col bg-background overflow-hidden" style={{ height: '100dvh' }}>
+    <div className="fixed inset-0 flex flex-col bg-mobile-surface overflow-hidden overscroll-none" style={{ height: '100dvh', maxHeight: '100dvh' }}>
       {/* Native App Chat Header */}
-      <header className="flex-shrink-0 z-50 app-header safe-area-top px-2 py-2">
+      <header className="flex-shrink-0 z-50 safe-area-top px-2 py-2 bg-mobile-header text-mobile-header-foreground shadow-lg shadow-mobile-header/20">
         <div className="flex items-center gap-3 w-full">
           <motion.div whileTap={{ scale: 0.9 }}>
             <Button
               variant="ghost"
               size="icon"
               onClick={() => navigate('/messages')}
-              className="h-9 w-9 rounded-full press-effect"
+              className="h-9 w-9 rounded-full press-effect text-mobile-header-foreground hover:bg-mobile-header-foreground/10"
             >
               <ArrowLeft className="h-5 w-5" />
             </Button>
@@ -780,7 +780,7 @@ export default function Chat() {
             onClick={() => navigate(`/profile/${friend.id}`)}
           >
             <div className="relative">
-              <Avatar className="h-10 w-10 ring-2 ring-primary/20 ring-offset-1 ring-offset-background">
+              <Avatar className="h-10 w-10 ring-2 ring-mobile-header-foreground/25 ring-offset-1 ring-offset-mobile-header">
                 <AvatarImage src={friend.avatar_url || undefined} className="object-cover" />
                 <AvatarFallback className="bg-gradient-to-br from-primary to-primary/50 text-primary-foreground text-base font-semibold">
                   {friend.first_name[0]}
@@ -800,7 +800,7 @@ export default function Chat() {
             className="flex-1 min-w-0 cursor-pointer"
             onClick={() => navigate(`/profile/${friend.id}`)}
           >
-            <p className="font-bold text-base truncate">{friend.first_name}</p>
+            <p className="font-bold text-base truncate text-mobile-header-foreground">{friend.first_name}</p>
             <AnimatePresence mode="wait">
               {isTyping ? (
                 <motion.div 
@@ -810,11 +810,11 @@ export default function Chat() {
                   exit={{ opacity: 0, y: -5 }}
                   className="flex items-center gap-1"
                 >
-                  <span className="text-xs font-medium text-primary">digitando</span>
+                  <span className="text-xs font-medium text-mobile-header-foreground/80">digitando</span>
                   <motion.span 
                     animate={{ opacity: [1, 0.3, 1] }}
                     transition={{ duration: 1.2, repeat: Infinity }}
-                    className="text-primary"
+                    className="text-mobile-header-foreground/80"
                   >
                     ...
                   </motion.span>
@@ -825,7 +825,7 @@ export default function Chat() {
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
-                  className="text-xs text-muted-foreground"
+                  className="text-xs text-mobile-header-foreground/65"
                 >
                   {isOnline ? 'online' : 'offline'}
                 </motion.p>
@@ -838,7 +838,7 @@ export default function Chat() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-9 w-9 rounded-full press-effect"
+                className="h-9 w-9 rounded-full press-effect text-mobile-header-foreground hover:bg-mobile-header-foreground/10"
                 onClick={() => startCall('video')}
               >
                 <Video className="h-5 w-5" />
@@ -848,7 +848,7 @@ export default function Chat() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-9 w-9 rounded-full press-effect"
+                className="h-9 w-9 rounded-full press-effect text-mobile-header-foreground hover:bg-mobile-header-foreground/10"
                 onClick={() => startCall('voice')}
               >
                 <Phone className="h-5 w-5" />
@@ -858,7 +858,7 @@ export default function Chat() {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <motion.div whileTap={{ scale: 0.9 }}>
-                   <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full press-effect">
+                    <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full press-effect text-mobile-header-foreground hover:bg-mobile-header-foreground/10">
                     <MoreVertical className="h-[18px] w-[18px]" />
                   </Button>
                 </motion.div>
@@ -884,7 +884,7 @@ export default function Chat() {
 
       {/* Messages Area */}
       <div 
-        className="flex-1 overflow-y-auto overflow-x-hidden native-scroll"
+        className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain native-scroll [overflow-anchor:none]"
         style={{
           backgroundImage: wallpaper ? `url(${wallpaper})` : 'none',
           backgroundSize: 'cover',
@@ -892,7 +892,7 @@ export default function Chat() {
           backgroundColor: wallpaper ? undefined : 'hsl(var(--muted) / 0.2)',
         }}
       >
-        <div className="max-w-3xl mx-auto px-3 py-4 space-y-1">
+        <div className="max-w-3xl mx-auto px-3 py-4 space-y-1 pb-5">
           {Object.entries(groupedMessages).map(([date, msgs]) => (
             <div key={date}>
               {/* Date Label - more modern style */}
@@ -1082,7 +1082,7 @@ export default function Chat() {
       </AnimatePresence>
 
       {/* Native Input Area */}
-      <div className="flex-shrink-0 bg-card/98 border-t border-border/40 px-3 py-2 safe-area-bottom" style={{ backdropFilter: 'saturate(180%) blur(20px)', WebkitBackdropFilter: 'saturate(180%) blur(20px)' }}>
+      <div className="flex-shrink-0 bg-card/98 border-t border-border/40 px-3 py-2 safe-area-bottom [transform:translateZ(0)]" style={{ backdropFilter: 'saturate(180%) blur(20px)', WebkitBackdropFilter: 'saturate(180%) blur(20px)' }}>
         <form onSubmit={editingMessage ? (e) => { e.preventDefault(); saveEditedMessage(); } : sendMessage} className="flex items-center gap-2.5 max-w-3xl mx-auto">
           <motion.div whileTap={{ scale: 0.9 }}>
             <Button
