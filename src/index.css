@@ -47,6 +47,12 @@
     --shadow-hover: 0 4px 12px rgba(0, 0, 0, 0.08);
     --shadow-soft: 0 2px 8px rgba(0, 0, 0, 0.06);
     --shadow-elevated: 0 8px 30px rgba(0, 0, 0, 0.12);
+
+    --mobile-header: 240 41% 17%;
+    --mobile-header-soft: 240 38% 28%;
+    --mobile-header-foreground: 0 0% 100%;
+    --mobile-surface: 246 100% 99%;
+    --mobile-pill: 240 41% 17%;
   }
 
   .dark {
@@ -89,6 +95,12 @@
     --shadow-hover: 0 4px 16px rgba(0, 0, 0, 0.4);
     --shadow-soft: 0 2px 8px rgba(0, 0, 0, 0.25);
     --shadow-elevated: 0 8px 30px rgba(0, 0, 0, 0.5);
+
+    --mobile-header: 240 41% 17%;
+    --mobile-header-soft: 240 38% 28%;
+    --mobile-header-foreground: 0 0% 100%;
+    --mobile-surface: 240 18% 8%;
+    --mobile-pill: 240 41% 17%;
   }
 }
 
@@ -174,6 +186,8 @@
 
   /* Native app overscroll behavior */
   html, body {
+    height: 100%;
+    overflow: hidden;
     overscroll-behavior-y: none;
   }
 }
