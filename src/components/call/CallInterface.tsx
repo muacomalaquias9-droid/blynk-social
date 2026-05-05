@@ -5,6 +5,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { motion } from 'framer-motion';
+import { playConnectSound, playHangupSound, startCallingSound, stopCallingSound } from '@/utils/callSounds';
 
 interface CallInterfaceProps {
   callId: string;
@@ -19,19 +20,19 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
   const [isConnected, setIsConnected] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
   const [remoteUser, setRemoteUser] = useState<any>(null);
+  const [connectionLabel, setConnectionLabel] = useState('Conectando...');
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const channelRef = useRef<any>(null);
-  const connectSoundRef = useRef<HTMLAudioElement | null>(null);
   const offerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const missedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingIceRef = useRef<RTCIceCandidateInit[]>([]);
 
   useEffect(() => {
-    connectSoundRef.current = new Audio('/sounds/connect.mp3');
     loadCallData();
     initCall();
     return () => cleanup();
@@ -66,6 +67,7 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
 
       const isCaller = callRow.caller_id === user?.id;
       if (isCaller) {
+        startCallingSound();
         missedTimeoutRef.current = setTimeout(async () => {
           if (peerConnectionRef.current?.connectionState !== 'connected') {
             await supabase.from('calls').update({ status: 'missed', ended_at: new Date().toISOString() }).eq('id', callId);
@@ -97,11 +99,15 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
         iceServers: [
           { urls: 'stun:stun.l.google.com:19302' },
           { urls: 'stun:stun1.l.google.com:19302' },
+          { urls: 'stun:stun2.l.google.com:19302' },
+          { urls: 'stun:stun3.l.google.com:19302' },
           { urls: 'stun:global.stun.twilio.com:3478' },
           {
             urls: [
               'turn:openrelay.metered.ca:80',
+              'turn:openrelay.metered.ca:80?transport=tcp',
               'turn:openrelay.metered.ca:443',
+              'turn:openrelay.metered.ca:443?transport=udp',
               'turn:openrelay.metered.ca:443?transport=tcp',
               'turns:openrelay.metered.ca:443?transport=tcp',
             ],
@@ -288,14 +294,19 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
             missedTimeoutRef.current = null;
           }
           setIsConnected(true);
-          connectSoundRef.current?.play().catch(() => {});
+          stopCallingSound();
+          playConnectSound();
+          setConnectionLabel('Ligação segura');
           // Re-trigger remote audio play once connected (mobile autoplay quirk)
           remoteAudioRef.current?.play().catch(() => {});
           supabase.from('calls').update({ status: 'ongoing' }).eq('id', callId).then(() => {});
         } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-          // Try to reconnect or end
+          setConnectionLabel(pc.connectionState === 'failed' ? 'A reconectar...' : 'Sinal instável...');
           if (pc.connectionState === 'failed') {
-            endCall();
+            pc.restartIce?.();
+            reconnectTimeoutRef.current = setTimeout(() => {
+              if (peerConnectionRef.current?.connectionState !== 'connected') endCall();
+            }, 8000);
           }
         }
       };
@@ -315,6 +326,11 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
       clearTimeout(missedTimeoutRef.current);
       missedTimeoutRef.current = null;
     }
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+    stopCallingSound();
     localStreamRef.current?.getTracks().forEach(track => track.stop());
     peerConnectionRef.current?.close();
     if (channelRef.current) supabase.removeChannel(channelRef.current);
@@ -344,8 +360,8 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
       payload: { type: 'end-call', from: user?.id },
     });
     
-    const hangupSound = new Audio('/sounds/hangup.mp3');
-    hangupSound.play().catch(() => {});
+    stopCallingSound();
+    playHangupSound();
     
     await supabase.from('calls').update({ status: 'ended', ended_at: new Date().toISOString() }).eq('id', callId);
     cleanup();
@@ -361,18 +377,19 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-gradient-to-b from-gray-900 to-black flex flex-col">
+    <div className="fixed inset-0 z-50 bg-mobile-header text-mobile-header-foreground flex flex-col overflow-hidden">
       {/* Hidden audio element for remote voice - CRITICAL: autoPlay + playsInline */}
       <audio ref={remoteAudioRef} autoPlay playsInline controls={false} style={{ display: 'none' }} />
       
-      <div className="flex-1 relative flex items-center justify-center">
+      <div className="flex-1 relative flex items-center justify-center overflow-hidden">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_20%,hsl(var(--mobile-header-soft)),hsl(var(--mobile-header))_48%,hsl(var(--background))_140%)]" />
         {isVideo ? (
           <>
-            <video ref={remoteVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
+            <video ref={remoteVideoRef} autoPlay playsInline muted className="relative z-10 w-full h-full object-cover" />
             <motion.div 
               initial={{ scale: 0.8, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              className="absolute bottom-24 right-4 w-32 h-44 rounded-2xl overflow-hidden border-2 border-white/20 shadow-2xl"
+              className="absolute z-20 bottom-28 right-4 w-32 h-44 rounded-[28px] overflow-hidden border-2 border-mobile-header-foreground/20 shadow-2xl bg-mobile-header-soft"
             >
               {/* Local video is muted so we don't hear our own voice */}
               <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" style={{ transform: 'scaleX(-1)' }} />
@@ -382,12 +399,14 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
           <motion.div 
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="flex flex-col items-center"
+            className="relative z-10 flex flex-col items-center px-8 text-center"
           >
             <div className="relative mb-6">
-              <Avatar className="h-32 w-32 ring-4 ring-primary/30">
+              <motion.div animate={{ scale: [1, 1.06, 1], opacity: [0.55, 0.25, 0.55] }} transition={{ repeat: Infinity, duration: 2.4 }} className="absolute -inset-8 rounded-full border border-mobile-header-foreground/25" />
+              <motion.div animate={{ scale: [1, 1.16, 1], opacity: [0.35, 0.12, 0.35] }} transition={{ repeat: Infinity, duration: 2.4, delay: 0.3 }} className="absolute -inset-14 rounded-full border border-mobile-header-foreground/20" />
+              <Avatar className="relative h-36 w-36 ring-4 ring-mobile-header-foreground/20 shadow-2xl">
                 <AvatarImage src={remoteUser?.avatar_url} />
-                <AvatarFallback className="bg-gradient-to-br from-primary to-accent text-white text-4xl">
+                <AvatarFallback className="bg-mobile-header-soft text-mobile-header-foreground text-4xl">
                   {remoteUser?.first_name?.[0] || '?'}
                 </AvatarFallback>
               </Avatar>
@@ -395,16 +414,17 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
                 <motion.div 
                   animate={{ scale: [1, 1.2, 1] }}
                   transition={{ repeat: Infinity, duration: 2 }}
-                  className="absolute -bottom-1 -right-1 h-8 w-8 bg-green-500 rounded-full flex items-center justify-center border-4 border-gray-900"
+                  className="absolute -bottom-1 -right-1 h-8 w-8 bg-success rounded-full flex items-center justify-center border-4 border-mobile-header"
                 >
-                  <Volume2 className="h-4 w-4 text-white" />
+                  <Volume2 className="h-4 w-4 text-success-foreground" />
                 </motion.div>
               )}
             </div>
-            <h2 className="text-white text-2xl font-bold mb-2">{remoteUser?.first_name || 'Chamada'}</h2>
-            <p className="text-white/60 text-lg">
+            <h2 className="text-mobile-header-foreground text-3xl font-extrabold mb-2">{remoteUser?.first_name || 'Chamada'}</h2>
+            <p className="text-mobile-header-foreground/65 text-lg font-medium tabular-nums">
               {isConnected ? formatDuration(callDuration) : 'Conectando...'}
             </p>
+            <p className="mt-2 text-xs font-semibold text-mobile-header-foreground/45 uppercase tracking-wider">{connectionLabel}</p>
           </motion.div>
         )}
       </div>
@@ -412,19 +432,19 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
       {/* Call duration overlay for video calls */}
       {isVideo && isConnected && (
         <div className="absolute top-12 left-0 right-0 flex justify-center">
-          <div className="px-4 py-1.5 rounded-full bg-black/50 backdrop-blur-sm">
-            <span className="text-white text-sm font-medium">{formatDuration(callDuration)}</span>
+          <div className="px-4 py-1.5 rounded-full bg-mobile-header/55 backdrop-blur-sm">
+            <span className="text-mobile-header-foreground text-sm font-medium">{formatDuration(callDuration)}</span>
           </div>
         </div>
       )}
 
       {/* Controls */}
-      <div className="p-8 flex justify-center gap-6 safe-area-bottom">
+      <div className="relative z-30 px-8 pt-5 pb-8 flex justify-center gap-6 safe-area-bottom bg-gradient-to-t from-mobile-header via-mobile-header/90 to-transparent">
         <motion.div whileTap={{ scale: 0.9 }}>
           <Button
             variant={isMuted ? 'destructive' : 'secondary'}
             size="icon"
-            className="h-16 w-16 rounded-full"
+            className="h-16 w-16 rounded-full bg-mobile-header-foreground/14 text-mobile-header-foreground hover:bg-mobile-header-foreground/20 border border-mobile-header-foreground/10"
             onClick={toggleMute}
           >
             {isMuted ? <MicOff className="h-7 w-7" /> : <Mic className="h-7 w-7" />}
@@ -436,7 +456,7 @@ export default function CallInterface({ callId, isVideo, onEnd }: CallInterfaceP
             <Button
               variant={isVideoOff ? 'destructive' : 'secondary'}
               size="icon"
-              className="h-16 w-16 rounded-full"
+              className="h-16 w-16 rounded-full bg-mobile-header-foreground/14 text-mobile-header-foreground hover:bg-mobile-header-foreground/20 border border-mobile-header-foreground/10"
               onClick={toggleVideo}
             >
               {isVideoOff ? <VideoOff className="h-7 w-7" /> : <Video className="h-7 w-7" />}

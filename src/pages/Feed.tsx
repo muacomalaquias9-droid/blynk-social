@@ -23,7 +23,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import PostOptionsSheet from "@/components/PostOptionsSheet";
 import { playLikeSound, playClickSound } from "@/utils/soundEffects";
 import { useRateLimiting } from "@/hooks/useRateLimiting";
-import { Logo2026 } from "@/components/Logo2026";
 import BottomNav from "@/components/BottomNav";
 import { useContentProtection } from "@/hooks/useContentProtection";
 
@@ -385,28 +384,21 @@ export default function Feed() {
   return (
     <ProtectedRoute>
       <MessageNotification />
-      <div className="min-h-screen bg-background">
+      <div className="fixed inset-0 bg-mobile-surface overflow-hidden">
         {/* Header - Floating glass */}
-        <header className="fixed top-0 left-0 right-0 z-50 safe-area-top"
-          style={{
-            background: 'hsl(var(--background) / 0.72)',
-            backdropFilter: 'blur(48px) saturate(200%)',
-            WebkitBackdropFilter: 'blur(48px) saturate(200%)',
-            borderBottom: '0.5px solid hsl(var(--border) / 0.08)',
-          }}
-        >
+        <header className="fixed top-0 left-0 right-0 z-50 safe-area-top bg-mobile-header text-mobile-header-foreground shadow-lg shadow-mobile-header/20">
           <div className="flex items-center justify-between h-12 px-4 max-w-lg mx-auto">
             <div className="flex items-center gap-2.5">
-              <Button variant="ghost" size="icon" className="h-9 w-9 rounded-2xl active:scale-90 transition-transform" onClick={() => navigate("/sidebar")}>
+              <Button variant="ghost" size="icon" className="h-9 w-9 rounded-2xl active:scale-90 transition-transform text-mobile-header-foreground hover:bg-mobile-header-foreground/10" onClick={() => navigate("/sidebar")}>
                 <Menu className="h-5 w-5" strokeWidth={1.5} />
               </Button>
-              <Logo2026 size="sm" />
+              <span className="font-display text-[22px] font-extrabold tracking-normal text-mobile-header-foreground">Blynk</span>
             </div>
             <div className="flex items-center gap-1">
-              <Button variant="ghost" size="icon" className="h-9 w-9 rounded-2xl active:scale-90 transition-transform" onClick={() => navigate("/notifications")}>
+              <Button variant="ghost" size="icon" className="h-9 w-9 rounded-2xl active:scale-90 transition-transform text-mobile-header-foreground hover:bg-mobile-header-foreground/10" onClick={() => navigate("/notifications")}>
                 <Heart className="h-5 w-5" strokeWidth={1.5} />
               </Button>
-              <Button variant="ghost" size="icon" className="h-9 w-9 rounded-2xl active:scale-90 transition-transform" onClick={() => navigate("/messages")}>
+              <Button variant="ghost" size="icon" className="h-9 w-9 rounded-2xl active:scale-90 transition-transform text-mobile-header-foreground hover:bg-mobile-header-foreground/10" onClick={() => navigate("/messages")}>
                 <Send className="h-5 w-5" strokeWidth={1.5} />
               </Button>
             </div>
@@ -422,7 +414,7 @@ export default function Feed() {
         </div>
 
         <div ref={scrollContainerRef}
-          className="pt-12 pb-[72px] h-screen overflow-y-auto native-scroll"
+          className="pt-12 pb-[92px] h-[100dvh] overflow-y-auto overscroll-contain native-scroll"
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
@@ -451,9 +443,9 @@ export default function Feed() {
                     {showAd && <div className="mb-3"><SponsoredAd ad={sponsoredAds[adIndex]} likesCount={0} isLiked={false} userId={currentUserId} /></div>}
                     
                     {/* Card with subtle glass effect */}
-                    <article className="rounded-[28px] overflow-hidden"
+                    <article className="rounded-[28px] overflow-hidden bg-card shadow-[var(--shadow-card)]"
                       style={{
-                        background: 'hsl(var(--card) / 0.5)',
+                        background: 'hsl(var(--card) / 0.92)',
                         backdropFilter: 'blur(20px)',
                         WebkitBackdropFilter: 'blur(20px)',
                         border: '1px solid hsl(var(--border) / 0.08)',

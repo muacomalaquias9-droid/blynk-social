@@ -43,6 +43,10 @@ export default {
           DEFAULT: "hsl(var(--accent))",
           foreground: "hsl(var(--accent-foreground))",
         },
+        success: {
+          DEFAULT: "hsl(var(--success))",
+          foreground: "hsl(var(--success-foreground))",
+        },
         popover: {
           DEFAULT: "hsl(var(--popover))",
           foreground: "hsl(var(--popover-foreground))",
@@ -57,6 +61,13 @@ export default {
           received: "hsl(var(--chat-bubble-received))",
         },
         online: "hsl(var(--online-indicator))",
+        mobile: {
+          header: "hsl(var(--mobile-header))",
+          "header-soft": "hsl(var(--mobile-header-soft))",
+          "header-foreground": "hsl(var(--mobile-header-foreground))",
+          surface: "hsl(var(--mobile-surface))",
+          pill: "hsl(var(--mobile-pill))",
+        },
       },
       borderRadius: {
         lg: "var(--radius)",
