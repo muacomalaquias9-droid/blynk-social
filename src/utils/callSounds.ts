@@ -24,11 +24,12 @@ let callingInterval: ReturnType<typeof setInterval> | null = null;
 export function startCallingSound() {
   stopCallingSound();
   const ring = () => {
-    playTone(440, 0.4, 'sine', 0.2);
-    setTimeout(() => playTone(480, 0.4, 'sine', 0.2), 400);
+    playTone(440, 0.9, 'sine', 0.18);
+    setTimeout(() => playTone(480, 0.9, 'sine', 0.14), 80);
+    setTimeout(() => playTone(440, 0.9, 'sine', 0.12), 140);
   };
   ring();
-  callingInterval = setInterval(ring, 2000);
+  callingInterval = setInterval(ring, 3100);
 }
 
 export function stopCallingSound() {
@@ -43,13 +44,13 @@ let ringingInterval: ReturnType<typeof setInterval> | null = null;
 export function startRingingSound() {
   stopRingingSound();
   const ring = () => {
-    playTone(523, 0.15, 'sine', 0.25);
-    setTimeout(() => playTone(659, 0.15, 'sine', 0.25), 200);
-    setTimeout(() => playTone(523, 0.15, 'sine', 0.25), 400);
-    setTimeout(() => playTone(659, 0.15, 'sine', 0.25), 600);
+    playTone(1318, 0.18, 'sine', 0.22);
+    setTimeout(() => playTone(1568, 0.18, 'sine', 0.2), 220);
+    setTimeout(() => playTone(1175, 0.18, 'sine', 0.18), 440);
+    setTimeout(() => playTone(1568, 0.32, 'sine', 0.2), 660);
   };
   ring();
-  ringingInterval = setInterval(ring, 1500);
+  ringingInterval = setInterval(ring, 2200);
 }
 
 export function stopRingingSound() {
